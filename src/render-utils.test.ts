@@ -1,26 +1,40 @@
 import { shouldRenderInfluxForMarkdownElement } from './render-utils';
 
-function elementWithClosest(match: Element | null): HTMLElement {
+function elementWithContext(options: {
+	tableContext?: Element | null;
+	parentPreviewContext?: Element | null;
+} = {}): HTMLElement {
+	const parentElement = {
+		closest: jest.fn().mockReturnValue(options.parentPreviewContext ?? null),
+	} as unknown as HTMLElement;
+
 	return {
-		closest: jest.fn().mockReturnValue(match),
+		closest: jest.fn().mockReturnValue(options.tableContext ?? null),
+		parentElement,
 	} as unknown as HTMLElement;
 }
 
 describe('Render Utils', () => {
 	describe('shouldRenderInfluxForMarkdownElement', () => {
-		test('allows normal markdown preview elements', () => {
-			const element = elementWithClosest(null);
+		test('allows note-level markdown preview elements', () => {
+			const element = elementWithContext();
 
 			expect(shouldRenderInfluxForMarkdownElement(element)).toBe(true);
-			expect(element.closest).toHaveBeenCalledWith('td, th, table');
+			expect(element.closest).toHaveBeenCalledWith(expect.stringContaining('table'));
+			expect(element.parentElement?.closest).toHaveBeenCalledWith('.markdown-preview-view, .markdown-reading-view');
 		});
 
-		test('rejects elements inside table cells or tables', () => {
-			const tableContext = {} as Element;
-			const element = elementWithClosest(tableContext);
+		test('rejects elements inside table render contexts', () => {
+			const element = elementWithContext({ tableContext: {} as Element });
 
 			expect(shouldRenderInfluxForMarkdownElement(element)).toBe(false);
-			expect(element.closest).toHaveBeenCalledWith('td, th, table');
+			expect(element.parentElement?.closest).not.toHaveBeenCalled();
+		});
+
+		test('rejects nested markdown preview elements inside another preview', () => {
+			const element = elementWithContext({ parentPreviewContext: {} as Element });
+
+			expect(shouldRenderInfluxForMarkdownElement(element)).toBe(false);
 		});
 	});
 });
