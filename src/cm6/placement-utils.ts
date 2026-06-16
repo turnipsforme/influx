@@ -6,7 +6,7 @@ function isFrontmatterFence(text: string): boolean {
 
 function isMarkdownTableRow(text: string): boolean {
 	const trimmed = text.trim();
-	return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|");
+	return trimmed.includes("|") && trimmed.split("|").length > 1;
 }
 
 export function findInfluxWidgetPosition(state: EditorState): number {
