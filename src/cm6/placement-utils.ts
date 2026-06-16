@@ -67,3 +67,24 @@ export function findInfluxWidgetPosition(state: EditorState): number {
 
 	return lineNumber <= doc.lines ? doc.line(lineNumber).from : doc.length;
 }
+
+export function isSelectionInMarkdownTable(state: EditorState): boolean {
+	const { doc, selection } = state;
+	const ranges = [selection.main.anchor, selection.main.head];
+
+	return ranges.some((position) => {
+		const line = doc.lineAt(position);
+		if (isMarkdownTableRow(line.text)) {
+			return true;
+		}
+
+		const previousLine = line.number > 1 ? doc.line(line.number - 1) : null;
+		const nextLine = line.number < doc.lines ? doc.line(line.number + 1) : null;
+
+		return Boolean(
+			previousLine && nextLine &&
+			isMarkdownTableRow(previousLine.text) &&
+			isMarkdownTableRow(nextLine.text)
+		);
+	});
+}

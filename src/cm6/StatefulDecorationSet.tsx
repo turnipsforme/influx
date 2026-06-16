@@ -4,7 +4,7 @@ import { EditorState, Range } from "@codemirror/state";
 import InfluxFile from '../InfluxFile';
 import { influxDecoration } from "./InfluxWidget";
 import { statefulDecorations } from "./helpers";
-import { findInfluxWidgetPosition } from "./placement-utils";
+import { findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
 
 
 export class StatefulDecorationSet {

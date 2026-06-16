@@ -1,8 +1,15 @@
 import { EditorState } from "@codemirror/state";
-import { findInfluxWidgetPosition } from "./placement-utils";
+import { findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
 
 function stateFromDoc(doc: string): EditorState {
 	return EditorState.create({ doc });
+}
+
+function stateWithSelection(doc: string, selectionAnchor: string): EditorState {
+	return EditorState.create({
+		doc,
+		selection: { anchor: doc.indexOf(selectionAnchor) },
+	});
 }
 
 describe("CM6 placement utils", () => {
@@ -88,5 +95,31 @@ describe("CM6 placement utils", () => {
 		].join("\n");
 
 		expect(findInfluxWidgetPosition(stateFromDoc(doc))).toBe(doc.length);
+	});
+
+	test("detects a selection inside a markdown table row", () => {
+		const doc = [
+			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"",
+			"Status | Under review",
+			"--- | ---",
+			"Reviewer(s) | Rafael García Cuellar",
+			"Updated | Jun 16, 2026",
+		].join("\n");
+
+		expect(isSelectionInMarkdownTable(stateWithSelection(doc, "Reviewer"))).toBe(true);
+	});
+
+	test("detects a selection on a blank line between markdown table rows", () => {
+		const doc = [
+			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"",
+			"Status | Under review",
+			"--- | ---",
+			"",
+			"Updated | Jun 16, 2026",
+		].join("\n");
+
+		expect(isSelectionInMarkdownTable(stateWithSelection(doc, "\n\nUpdated"))).toBe(true);
 	});
 });
