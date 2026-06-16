@@ -55,6 +55,28 @@ describe("CM6 placement utils", () => {
 		expect(findInfluxWidgetPosition(stateFromDoc(doc))).toBe(doc.indexOf("## Background"));
 	});
 
+	test("places the widget after a table that follows the note title", () => {
+		const doc = [
+			"---",
+			"title: B2BP-89 - Bump SQLAlchemy v2.0",
+			"---",
+			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"",
+			"Status | Under review",
+			"--- | ---",
+			"Jira Task | [[B2BP-89]]",
+			"Author(s) | Rudimar Luis Ronsoni Junior",
+			"Reviewer(s) | Rafael García Cuellar",
+			"Updated | Jun 16, 2026",
+			"Repositories | https://github.com/Feverup/partners",
+			"",
+			"## Background",
+			"Body",
+		].join("\n");
+
+		expect(findInfluxWidgetPosition(stateFromDoc(doc))).toBe(doc.indexOf("## Background"));
+	});
+
 	test("places the widget at the end when the note only contains frontmatter and a table", () => {
 		const doc = [
 			"---",
