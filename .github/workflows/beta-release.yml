@@ -37,7 +37,7 @@ on:
             - 'style-*'
 
 env:
-    PLUGIN_NAME: influx-beta
+    PLUGIN_NAME: influx
 
 jobs:
     build:
@@ -110,9 +110,7 @@ jobs:
                   npm ci
                   npm run build
                   mkdir ${{ env.PLUGIN_NAME }}
-                  cp main.js manifest-beta.json styles.css ${{ env.PLUGIN_NAME }}
-                  mv ${{ env.PLUGIN_NAME }}/manifest-beta.json ${{ env.PLUGIN_NAME }}/manifest.json
-                  cp manifest-beta.json manifest.json
+                  cp main.js manifest.json styles.css ${{ env.PLUGIN_NAME }}
                   zip -r ${{ env.PLUGIN_NAME }}-${{ steps.beta-version.outputs.new_tag }}.zip ${{ env.PLUGIN_NAME }}
                   ls
 
@@ -121,7 +119,7 @@ jobs:
               with:
                   subject-path: |
                       main.js
-                      ${{ env.PLUGIN_NAME }}/manifest.json
+                      manifest.json
                       styles.css
                       ${{ env.PLUGIN_NAME }}-${{ steps.beta-version.outputs.new_tag }}.zip
 
