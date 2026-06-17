@@ -1,5 +1,5 @@
 import { EditorState } from "@codemirror/state";
-import { findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
+import { containsMarkdownTable, findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
 
 function stateFromDoc(doc: string): EditorState {
 	return EditorState.create({ doc });
@@ -121,5 +121,30 @@ describe("CM6 placement utils", () => {
 		].join("\n");
 
 		expect(isSelectionInMarkdownTable(stateWithSelection(doc, "\n\nUpdated"))).toBe(true);
+	});
+
+	test("detects a markdown table anywhere in the editor document", () => {
+		const doc = [
+			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"",
+			"Status | Under review",
+			"--- | ---",
+			"Updated | Jun 16, 2026",
+			"",
+			"## Background",
+		].join("\n");
+
+		expect(containsMarkdownTable(stateFromDoc(doc))).toBe(true);
+	});
+
+	test("does not detect normal prose as a markdown table", () => {
+		const doc = [
+			"# Background",
+			"",
+			"This line has no table.",
+			"This line mentions partners and SQLAlchemy.",
+		].join("\n");
+
+		expect(containsMarkdownTable(stateFromDoc(doc))).toBe(false);
 	});
 });

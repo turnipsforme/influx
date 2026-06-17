@@ -88,3 +88,13 @@ export function isSelectionInMarkdownTable(state: EditorState): boolean {
 		);
 	});
 }
+
+export function containsMarkdownTable(state: EditorState): boolean {
+	const { doc } = state;
+	for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber++) {
+		if (isMarkdownTableRow(doc.line(lineNumber).text)) {
+			return true;
+		}
+	}
+	return false;
+}

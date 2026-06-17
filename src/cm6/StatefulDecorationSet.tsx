@@ -4,7 +4,7 @@ import { EditorState, Range } from "@codemirror/state";
 import InfluxFile from '../InfluxFile';
 import { influxDecoration } from "./InfluxWidget";
 import { statefulDecorations } from "./helpers";
-import { findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
+import { containsMarkdownTable, findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
 
 
 export class StatefulDecorationSet {
@@ -16,6 +16,10 @@ export class StatefulDecorationSet {
     }
 
     async computeAsyncDecorations(state: EditorState, show: boolean): Promise<DecorationSet | null> {
+        if (containsMarkdownTable(state) || isSelectionInMarkdownTable(state)) {
+            return Decoration.none;
+        }
+
         if (!state.field(editorViewField)) return null; // If not yet loaded.
 
         const { file } = state.field(editorViewField);
