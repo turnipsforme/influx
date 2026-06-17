@@ -1,10 +1,10 @@
 {
-	"id": "influx",
-	"name": "Influx",
+	"id": "influx-beta",
+	"name": "Influx Beta",
 	"version": "2.2.0-beta.10",
 	"minAppVersion": "1.0.0",
 	"description": "Transform your Obsidian backlinks from simple links into rich, contextual excerpts. See the actual content surrounding each link, turning your note connections into genuine insights.",
-	"author": "Jens M Gleditsch",
-	"authorUrl": "https://github.com/jensmtg",
+	"author": "Rudimar Luis Ronsoni Junior",
+	"authorUrl": "https://github.com/rudironsoni",
 	"isDesktopOnly": false
 }
