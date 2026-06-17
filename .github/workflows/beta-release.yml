@@ -112,6 +112,7 @@ jobs:
                   mkdir ${{ env.PLUGIN_NAME }}
                   cp main.js manifest-beta.json styles.css ${{ env.PLUGIN_NAME }}
                   mv ${{ env.PLUGIN_NAME }}/manifest-beta.json ${{ env.PLUGIN_NAME }}/manifest.json
+                  cp manifest-beta.json manifest.json
                   zip -r ${{ env.PLUGIN_NAME }}-${{ steps.beta-version.outputs.new_tag }}.zip ${{ env.PLUGIN_NAME }}
                   ls
 
