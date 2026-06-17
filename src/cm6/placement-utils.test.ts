@@ -30,10 +30,10 @@ describe("CM6 placement utils", () => {
 			"---",
 			"title: Example",
 			"---",
-			"| Status | Under review |",
+			"| Lorem ipsum | dolor sit amet |",
 			"| --- | --- |",
-			"| Jira Task | [[B2BP-89]] |",
-			"| Updated | Jun 16, 2026 |",
+			"| consectetur | [[lorem-ipsum]] |",
+			"| sed do | eiusmod tempor |",
 			"",
 			"## Background",
 			"Body",
@@ -47,13 +47,13 @@ describe("CM6 placement utils", () => {
 			"---",
 			"title: Example",
 			"---",
-			"Status | Under review",
+			"Lorem ipsum | dolor sit amet",
 			"--- | ---",
-			"Jira Task | [[B2BP-89]]",
-			"Author(s) | Rudimar Luis Ronsoni Junior",
-			"Reviewer(s) | Rafael García Cuellar",
-			"Updated | Jun 16, 2026",
-			"Repositories | https://github.com/Feverup/partners",
+			"consectetur | [[lorem-ipsum]]",
+			"amet | lorem ipsum",
+			"adipiscing | dolor sit amet",
+			"sed do | eiusmod tempor",
+			"Repositories | https://example.com/lorem-ipsum",
 			"",
 			"## Background",
 			"Body",
@@ -65,17 +65,17 @@ describe("CM6 placement utils", () => {
 	test("places the widget after a table that follows the note title", () => {
 		const doc = [
 			"---",
-			"title: B2BP-89 - Bump SQLAlchemy v2.0",
+			"title: lorem-ipsum - dolor sit amet",
 			"---",
-			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"# lorem-ipsum - dolor sit amet",
 			"",
-			"Status | Under review",
+			"Lorem ipsum | dolor sit amet",
 			"--- | ---",
-			"Jira Task | [[B2BP-89]]",
-			"Author(s) | Rudimar Luis Ronsoni Junior",
-			"Reviewer(s) | Rafael García Cuellar",
-			"Updated | Jun 16, 2026",
-			"Repositories | https://github.com/Feverup/partners",
+			"consectetur | [[lorem-ipsum]]",
+			"amet | lorem ipsum",
+			"adipiscing | dolor sit amet",
+			"sed do | eiusmod tempor",
+			"Repositories | https://example.com/lorem-ipsum",
 			"",
 			"## Background",
 			"Body",
@@ -89,9 +89,9 @@ describe("CM6 placement utils", () => {
 			"---",
 			"title: Example",
 			"---",
-			"| Status | Under review |",
+			"| Lorem ipsum | dolor sit amet |",
 			"| --- | --- |",
-			"| Jira Task | [[B2BP-89]] |",
+			"| consectetur | [[lorem-ipsum]] |",
 		].join("\n");
 
 		expect(findInfluxWidgetPosition(stateFromDoc(doc))).toBe(doc.length);
@@ -99,37 +99,37 @@ describe("CM6 placement utils", () => {
 
 	test("detects a selection inside a markdown table row", () => {
 		const doc = [
-			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"# lorem-ipsum - dolor sit amet",
 			"",
-			"Status | Under review",
+			"Lorem ipsum | dolor sit amet",
 			"--- | ---",
-			"Reviewer(s) | Rafael García Cuellar",
-			"Updated | Jun 16, 2026",
+			"adipiscing | dolor sit amet",
+			"sed do | eiusmod tempor",
 		].join("\n");
 
-		expect(isSelectionInMarkdownTable(stateWithSelection(doc, "Reviewer"))).toBe(true);
+		expect(isSelectionInMarkdownTable(stateWithSelection(doc, "adipiscing"))).toBe(true);
 	});
 
 	test("detects a selection on a blank line between markdown table rows", () => {
 		const doc = [
-			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"# lorem-ipsum - dolor sit amet",
 			"",
-			"Status | Under review",
+			"Lorem ipsum | dolor sit amet",
 			"--- | ---",
 			"",
-			"Updated | Jun 16, 2026",
+			"sed do | eiusmod tempor",
 		].join("\n");
 
-		expect(isSelectionInMarkdownTable(stateWithSelection(doc, "\n\nUpdated"))).toBe(true);
+		expect(isSelectionInMarkdownTable(stateWithSelection(doc, "\n\nsed do"))).toBe(true);
 	});
 
 	test("detects a markdown table anywhere in the editor document", () => {
 		const doc = [
-			"# B2BP-89 - Bump SQLAlchemy v2.0",
+			"# lorem-ipsum - dolor sit amet",
 			"",
-			"Status | Under review",
+			"Lorem ipsum | dolor sit amet",
 			"--- | ---",
-			"Updated | Jun 16, 2026",
+			"sed do | eiusmod tempor",
 			"",
 			"## Background",
 		].join("\n");
@@ -142,7 +142,7 @@ describe("CM6 placement utils", () => {
 			"# Background",
 			"",
 			"This line has no table.",
-			"This line mentions partners and SQLAlchemy.",
+			"This line mentions lorem ipsum and dolor sit amet.",
 		].join("\n");
 
 		expect(containsMarkdownTable(stateFromDoc(doc))).toBe(false);
