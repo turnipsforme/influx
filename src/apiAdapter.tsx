@@ -1,11 +1,7 @@
-import { App, TFile, CachedMetadata, LinkCache, MarkdownRenderer, Component, FrontmatterLinkCache } from 'obsidian';
+import { App, TFile, CachedMetadata, LinkCache, MarkdownRenderer, Component } from 'obsidian';
 import { InlinkingFile } from './InlinkingFile';
 import { DEFAULT_SETTINGS, ObsidianInfluxSettings } from './main';
-import ObsidianInflux from './main';
-import {
-    processFrontmatterLinks,
-    shouldIncludeFrontmatterLinks
-} from './frontmatter-utils';
+import { processFrontmatterLinks } from './frontmatter-utils';
 import {
     compareLinkName,
     createInlinkingFileComparator,
@@ -15,7 +11,11 @@ import {
     type FilterSettings
 } from './settings-utils';
 
-export type BacklinksObject = { data: Map<string, LinkCache[]> | { [key: string]: LinkCache[] } }
+export type BacklinksObject = {
+    data: Map<string, LinkCache[]> | Record<string, LinkCache[]>;
+    /** Unmodified incoming links returned by Obsidian. */
+    incomingData?: Map<string, LinkCache[]> | Record<string, LinkCache[]>;
+}
 export type ExtendedInlinkingFile = {
     inlinkingFile: InlinkingFile;
     titleInnerHTML: string;
@@ -70,7 +70,11 @@ export class ApiAdapter extends Component {
         }
 
         // @ts-expect-error - getBacklinksForFile is not officially typed in MetadataCache
-        const backlinks = this.app.metadataCache.getBacklinksForFile(file);
+        const rawBacklinks = this.app.metadataCache.getBacklinksForFile(file) as BacklinksObject;
+        // Frontmatter processing adds entries, so clone the native cache instead
+        // of mutating Obsidian's shared metadata object.
+        const backlinks = this.cloneBacklinks(rawBacklinks);
+        const incomingBacklinks = this.cloneBacklinks(rawBacklinks);
         const metadata = this.app.metadataCache.getFileCache(file);
         
         // Process front matter links using the pure function pipeline
@@ -78,9 +82,31 @@ export class ApiAdapter extends Component {
             const settings = this.getSettings();
             processFrontmatterLinks(backlinks, metadata.frontmatterLinks, settings);
         }
+
+        // The target note's own frontmatter links are outbound relationships.
+        // Keep native incoming data separate so they cannot make a zero-inlink
+        // note look backlinked or trigger editor processing on their own.
+        backlinks.incomingData = incomingBacklinks.data;
         
         this.backlinksCache.set(cacheKey, backlinks);
         return backlinks;
+    }
+
+    private cloneBacklinks(backlinks: BacklinksObject | null | undefined): BacklinksObject {
+        const data = backlinks?.data;
+        if (data instanceof Map) {
+            return {
+                data: new Map(
+                    Array.from(data.entries(), ([path, links]) => [path, [...links]]),
+                ),
+            };
+        }
+
+        const clonedData: Record<string, LinkCache[]> = {};
+        for (const [path, links] of Object.entries(data || {})) {
+            clonedData[path] = [...links];
+        }
+        return { data: clonedData };
     }
     async renderMarkdown(markdown: string): Promise<HTMLDivElement> {
         const div = document.createElement('div');
@@ -114,6 +140,15 @@ export class ApiAdapter extends Component {
         this.backlinksCache.clear();
         this.settingsCache = null;
         this.regexCache.clear();
+    }
+    /** Invalidate incoming-link data after Obsidian finishes re-indexing a file. */
+    invalidateBacklinksCache(): void {
+        this.backlinksCache.clear();
+    }
+    /** File renames/deletions can invalidate both path and backlink lookups. */
+    invalidateFileCache(): void {
+        this.fileCache.clear();
+        this.backlinksCache.clear();
     }
     /** Invalidate settings cache - call when settings are changed via UI */
     invalidateSettingsCache(): void {

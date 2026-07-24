@@ -3,6 +3,10 @@ import { ApiAdapter, BacklinksObject, ExtendedInlinkingFile } from './apiAdapter
 import { InlinkingFile } from './InlinkingFile';
 import ObsidianInflux from './main';
 import { v4 as uuidv4 } from 'uuid';
+import {
+    getBacklinkSourcePaths,
+    hasBacklinkEntries,
+} from './backlink-utils';
 
 
 export default class InfluxFile {
@@ -50,29 +54,59 @@ export default class InfluxFile {
         if (!this.file) {
             return;
         }
-        this.meta = this.api.getMetadata(this.file)
         this.backlinks = this.api.getBacklinks(this.file)
+
+        // Backlink-free notes do not need metadata, filter, excerpt, or Markdown work.
+        if (!this.hasBacklinks()) {
+            return;
+        }
+
+        this.meta = this.api.getMetadata(this.file)
         this.show = this.api.getShowStatus(this.file)
         this.collapsed = this.api.getCollapsedStatus(this.file)
     }
 
-    // is the file that triggers update part of the current files inlinked files?
-    shouldUpdate(file: TFile) {
-        this.backlinks = this.api.getBacklinks(this.file) // Must refresh in case of renamings.
-        if (!this.backlinks || !this.backlinks.data) {
+    hasBacklinks(): boolean {
+        return hasBacklinkEntries(this.backlinks)
+    }
+
+    /**
+     * Build everything needed by the UI, stopping before expensive work whenever
+     * there is nothing that can produce a visible entry.
+     */
+    async prepare(): Promise<boolean> {
+        this.components = []
+
+        if (!this.file || !this.show || !this.hasBacklinks()) {
+            this.inlinkingFiles = []
             return false
         }
-        const paths = this.backlinks.data instanceof Map
-            ? Array.from(this.backlinks.data.keys())
-            : Object.keys(this.backlinks.data)
-        return paths.includes(file.path)
+
+        await this.makeInfluxList()
+        if (this.inlinkingFiles.length === 0) {
+            return false
+        }
+
+        await this.renderAllMarkdownBlocks()
+        return this.components.length > 0
+    }
+
+    // is the file that triggers update part of the current files inlinked files?
+    shouldUpdate(file: TFile) {
+        const previousPaths = getBacklinkSourcePaths(this.backlinks)
+        this.backlinks = this.api.getBacklinks(this.file) // Must refresh in case of renamings.
+        const currentPaths = getBacklinkSourcePaths(this.backlinks)
+
+        // Include the old set so removing the final link still clears the UI.
+        return previousPaths.includes(file.path) || currentPaths.includes(file.path)
     }
 
     async makeInfluxList() {
         this.backlinks = this.api.getBacklinks(this.file) // Must refresh in case of renamings.
         const inlinkingFilesNew: InlinkingFile[] = []
-        if (!this.backlinks || !this.backlinks.data) {
+        if (!this.show || !this.hasBacklinks()) {
             this.inlinkingFiles = inlinkingFilesNew
+            this.components = []
             return
         }
         const validPaths: string[] = []
@@ -114,8 +148,9 @@ export default class InfluxFile {
     async renderAllMarkdownBlocks() {
 
         // Avoid rendering if no-show
-        if (!this.show) {
-            return
+        if (!this.show || this.inlinkingFiles.length === 0) {
+            this.components = []
+            return this.components
         }
 
         const components = await this.api.renderAllMarkdownBlocks(this.inlinkingFiles)
@@ -125,4 +160,3 @@ export default class InfluxFile {
 
 
 }
-
