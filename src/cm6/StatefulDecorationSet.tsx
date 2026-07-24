@@ -4,20 +4,25 @@ import { EditorState, Range } from "@codemirror/state";
 import InfluxFile from '../InfluxFile';
 import { influxDecoration } from "./InfluxWidget";
 import { statefulDecorations } from "./helpers";
+import { getBacklinkSourceSignature } from "../backlink-utils";
+import { getInfluxDecorationPlacement } from "./decoration-placement";
 
 
 export class StatefulDecorationSet {
     editor: EditorView;
     decoCache: { [cls: string]: Decoration } = Object.create(null);
+    private requestGeneration = 0;
+    private backlinkSourceSignature = '';
 
     constructor(editor: EditorView) {
         this.editor = editor;
     }
 
     async computeAsyncDecorations(state: EditorState, show: boolean): Promise<DecorationSet | null> {
-        if (!state.field(editorViewField)) return null; // If not yet loaded.
+        const editorField = state.field(editorViewField, false)
+        if (!editorField) return null; // If not yet loaded.
 
-        const { file } = state.field(editorViewField);
+        const { file } = editorField;
         if (!file) return null; // If no file is loaded
 
         // Access plugin through global window reference since app.plugins doesn't work in CodeMirror context
@@ -31,62 +36,71 @@ export class StatefulDecorationSet {
         const apiAdapter = plugin.api
 
         const influxFile = await InfluxFile.create(file.path, apiAdapter, plugin)
-        await influxFile.makeInfluxList()
-        await influxFile.renderAllMarkdownBlocks()
+
+        // Do not install even an empty block widget. It still participates in
+        // CodeMirror layout and can interfere with typing at the document edge.
+        if (!show || !influxFile.show || !influxFile.hasBacklinks()) {
+            return Decoration.none
+        }
+
+        const hasVisibleEntries = await influxFile.prepare()
+        if (!hasVisibleEntries) {
+            return Decoration.none
+        }
 
         const decorations: Range<Decoration>[] = []
-        if (show && influxFile.show) {
-            const settings = influxFile.influx.data.settings;
-
-            // Determine anchor position based on influxAtTopOfPage setting
-            let anchorPosition: number;
-            let side: number;
-
-            if (settings.influxAtTopOfPage) {
-                // Show at top of page (before content)
-                // Try to find position after frontmatter (if exists)
-                anchorPosition = this.findPositionAfterFrontmatter(state);
-                side = 1; // After the position (places it at the start of the content)
-            } else {
-                // Show at bottom of page (after all content)
-                anchorPosition = state.doc.length;
-                side = -1; // Before the position (places it at the end of the content)
-            }
-
-            decorations.push(influxDecoration({ influxFile, show: influxFile.show, side }).range(anchorPosition))
-        }
+        const placement = getInfluxDecorationPlacement(
+            state,
+            influxFile.influx.data.settings.influxAtTopOfPage,
+        )
+        decorations.push(influxDecoration({
+            influxFile,
+            show: true,
+            side: placement.side,
+        }).range(placement.position))
 
         return Decoration.set(decorations, true);
 
     }
 
-    private findPositionAfterFrontmatter(state: EditorState): number {
-        const doc = state.doc;
-
-        // Check if document has at least one line and starts with frontmatter
-        if (doc.lines === 0) return 0;
-
-        const firstLine = doc.line(1);
-        if (firstLine.text.trim() !== '---') return 0;
-
-        // Scan lines without converting entire doc to string - O(n) instead of O(n²)
-        for (let i = 2; i <= doc.lines; i++) {
-            const line = doc.line(i);
-            if (line.text.trim() === '---') {
-                return line.to; // Position after closing ---
-            }
+    /** Check whether incoming sources changed without doing excerpt/render work. */
+    backlinkSourcesChanged(): boolean {
+        const editorField = this.editor.state.field(editorViewField, false)
+        const plugin = (window as any).influxPlugin
+        if (!editorField?.file || !plugin) {
+            return false
         }
 
-        return 0;
+        const backlinks = plugin.api.getBacklinks(editorField.file)
+        return getBacklinkSourceSignature(backlinks) !== this.backlinkSourceSignature
     }
 
-
     async updateAsyncDecorations(state: EditorState, show: boolean): Promise<void> {
+        const requestGeneration = ++this.requestGeneration
+        const sourceDocument = state.doc
+        const sourceFilePath = state.field(editorViewField, false)?.file?.path
         const decorations = await this.computeAsyncDecorations(state, show);
 
         // Check if editor is still valid before proceeding
         if (!this.editor || !this.editor.state) {
             return;
+        }
+
+        const currentFilePath = this.editor.state.field(editorViewField, false)?.file?.path
+        if (
+            requestGeneration !== this.requestGeneration ||
+            sourceDocument !== this.editor.state.doc ||
+            sourceFilePath !== currentFilePath
+        ) {
+            return;
+        }
+
+        const plugin = (window as any).influxPlugin
+        const currentFile = this.editor.state.field(editorViewField, false)?.file
+        if (plugin && currentFile) {
+            this.backlinkSourceSignature = getBacklinkSourceSignature(
+                plugin.api.getBacklinks(currentFile),
+            )
         }
 
         // Safely check if we need to update decorations
@@ -114,5 +128,10 @@ export class StatefulDecorationSet {
                 // Dispatch failed - editor is being destroyed, ignore
             }
         }
+    }
+
+    destroy(): void {
+        // Supersede any asynchronous calculation that is still in flight.
+        this.requestGeneration++
     }
 }
