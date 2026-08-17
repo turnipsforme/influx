@@ -10,6 +10,11 @@ import {
     shouldCollapseInfluxWithMatcher,
     type FilterSettings
 } from './settings-utils';
+import {
+    getFreshBacklinks,
+    isBacklinkCacheActive,
+    type BacklinkMetadataCache,
+} from './backlink-cache';
 
 export type BacklinksObject = {
     data: Map<string, LinkCache[]> | Record<string, LinkCache[]>;
@@ -26,7 +31,9 @@ export class ApiAdapter extends Component {
     app: App;
     // File operation caching to reduce I/O overhead
     private fileCache: Map<string, TFile> = new Map();
-    private backlinksCache: Map<string, BacklinksObject> = new Map();
+    // One promise per target note, cleared by metadata events. This coalesces
+    // concurrent native vault scans without keeping a long-lived stale cache.
+    private backlinksCache: Map<string, Promise<BacklinksObject>> = new Map();
     private settingsCache: ObsidianInfluxSettings | null = null;
     // Cache compiled regex patterns to avoid recompilation on every pattern match
     // Use null as a sentinel value for invalid regex patterns
@@ -62,15 +69,30 @@ export class ApiAdapter extends Component {
     getMetadata(file: TFile): CachedMetadata {
         return this.app.metadataCache.getFileCache(file);
     }
-    getBacklinks(file: TFile): BacklinksObject {
-        // Check cache first to reduce I/O
-        const cacheKey = file.path;
-        if (this.backlinksCache.has(cacheKey)) {
-            return this.backlinksCache.get(cacheKey)!;
+    async getBacklinks(file: TFile): Promise<BacklinksObject> {
+        const cached = this.backlinksCache.get(file.path);
+        if (cached) {
+            return await cached;
         }
 
-        // @ts-expect-error - getBacklinksForFile is not officially typed in MetadataCache
-        const rawBacklinks = this.app.metadataCache.getBacklinksForFile(file) as BacklinksObject;
+        const request = this.loadBacklinks(file);
+        this.backlinksCache.set(file.path, request);
+
+        try {
+            return await request;
+        } catch (error) {
+            if (this.backlinksCache.get(file.path) === request) {
+                this.backlinksCache.delete(file.path);
+            }
+            throw error;
+        }
+    }
+
+    private async loadBacklinks(file: TFile): Promise<BacklinksObject> {
+        const rawBacklinks = await getFreshBacklinks(
+            this.app.metadataCache as BacklinkMetadataCache,
+            file,
+        );
         // Frontmatter processing adds entries, so clone the native cache instead
         // of mutating Obsidian's shared metadata object.
         const backlinks = this.cloneBacklinks(rawBacklinks);
@@ -88,8 +110,11 @@ export class ApiAdapter extends Component {
         // note look backlinked or trigger editor processing on their own.
         backlinks.incomingData = incomingBacklinks.data;
         
-        this.backlinksCache.set(cacheKey, backlinks);
         return backlinks;
+    }
+
+    isBacklinkCacheActive(): boolean {
+        return isBacklinkCacheActive(this.app.metadataCache as BacklinkMetadataCache);
     }
 
     private cloneBacklinks(backlinks: BacklinksObject | null | undefined): BacklinksObject {
@@ -141,11 +166,11 @@ export class ApiAdapter extends Component {
         this.settingsCache = null;
         this.regexCache.clear();
     }
-    /** Invalidate incoming-link data after Obsidian finishes re-indexing a file. */
+    /** Start a fresh event-driven backlink update batch. */
     invalidateBacklinksCache(): void {
         this.backlinksCache.clear();
     }
-    /** File renames/deletions can invalidate both path and backlink lookups. */
+    /** File renames/deletions can invalidate path and backlink lookups. */
     invalidateFileCache(): void {
         this.fileCache.clear();
         this.backlinksCache.clear();
@@ -154,7 +179,7 @@ export class ApiAdapter extends Component {
     invalidateSettingsCache(): void {
         this.settingsCache = null;
         this.regexCache.clear(); // Clear regex cache so new patterns are compiled
-        this.backlinksCache.clear(); // Clear backlinks cache as frontmatter processing depends on settings
+        this.backlinksCache.clear();
     }
     /** Pre-compile all regex patterns from settings to eliminate JIT overhead on critical path */
     preCompileRegexPatterns(settings: Partial<ObsidianInfluxSettings>): void {

@@ -13,7 +13,7 @@ function createApi(backlinkData: Map<string, LinkCache[]> | Record<string, LinkC
     const file = { path: 'Target.md', basename: 'Target' } as TFile;
     const api = {
         getFileByPath: jest.fn(() => file),
-        getBacklinks: jest.fn(() => ({ data: backlinkData })),
+        getBacklinks: jest.fn(async () => ({ data: backlinkData })),
         getMetadata: jest.fn(),
         getShowStatus: jest.fn(() => true),
         getCollapsedStatus: jest.fn(() => false),
@@ -23,6 +23,8 @@ function createApi(backlinkData: Map<string, LinkCache[]> | Record<string, LinkC
 
     return { api, file };
 }
+
+const link = { link: 'Target' } as LinkCache;
 
 describe('InfluxFile processing guard', () => {
     test.each([
@@ -48,5 +50,46 @@ describe('InfluxFile processing guard', () => {
         expect(makeInfluxList).not.toHaveBeenCalled();
         expect(renderAllMarkdownBlocks).not.toHaveBeenCalled();
         expect(api.renderAllMarkdownBlocks).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        {
+            name: 'an added backlink',
+            initial: new Map<string, LinkCache[]>(),
+            current: new Map<string, LinkCache[]>([['Source.md', [link]]]),
+            changedPath: 'Source.md',
+            expected: true,
+        },
+        {
+            name: 'a removed backlink',
+            initial: new Map<string, LinkCache[]>([['Source.md', [link]]]),
+            current: new Map<string, LinkCache[]>(),
+            changedPath: 'Source.md',
+            expected: true,
+        },
+        {
+            name: 'an unrelated file',
+            initial: new Map<string, LinkCache[]>([['Source.md', [link]]]),
+            current: new Map<string, LinkCache[]>([['Source.md', [link]]]),
+            changedPath: 'Other.md',
+            expected: false,
+        },
+        {
+            name: 'the target file itself',
+            initial: new Map<string, LinkCache[]>(),
+            current: new Map<string, LinkCache[]>(),
+            changedPath: 'Target.md',
+            expected: true,
+        },
+    ])('refreshes for $name', async ({ initial, current, changedPath, expected }) => {
+        const { api } = createApi(initial);
+        const influxFile = await InfluxFile.create(
+            'Target.md',
+            api,
+            {} as ObsidianInflux,
+        );
+        (api.getBacklinks as jest.Mock).mockResolvedValue({ data: current });
+
+        await expect(influxFile.shouldUpdate({ path: changedPath } as TFile)).resolves.toBe(expected);
     });
 });

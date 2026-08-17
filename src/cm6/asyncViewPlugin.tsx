@@ -34,8 +34,8 @@ class InfluxEditorViewPlugin {
         this.showInflux(view);
     }, 3000, true)
 
-    refreshForBacklinkChange() {
-        if (this.statefulDecorationsSet.backlinkSourcesChanged()) {
+    async refreshForBacklinkChange(): Promise<void> {
+        if (await this.statefulDecorationsSet.backlinkSourcesChanged()) {
             this.debouncedShow?.cancel?.();
             this.showInflux(this.view);
         }
@@ -59,15 +59,14 @@ const asyncViewPlugin = ViewPlugin.fromClass(InfluxEditorViewPlugin);
  * Refresh open editors when backlink metadata changes. Source signatures make
  * this a cheap no-op unless an incoming source was added or removed.
  */
-export function refreshInfluxEditorDecorations(backlinksOnly = false): void {
-    for (const editorPlugin of activeEditorPlugins) {
+export async function refreshInfluxEditorDecorations(backlinksOnly = false): Promise<void> {
+    await Promise.allSettled(Array.from(activeEditorPlugins, async editorPlugin => {
         if (backlinksOnly) {
-            editorPlugin.refreshForBacklinkChange();
-        } else {
-            editorPlugin.refresh();
+            await editorPlugin.refreshForBacklinkChange();
+            return;
         }
-    }
+        editorPlugin.refresh();
+    }));
 }
 
 export const asyncDecoBuilderExt = [statefulDecorations.field, asyncViewPlugin]
-

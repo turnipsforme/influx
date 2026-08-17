@@ -54,16 +54,7 @@ export default class InfluxFile {
         if (!this.file) {
             return;
         }
-        this.backlinks = this.api.getBacklinks(this.file)
-
-        // Backlink-free notes do not need metadata, filter, excerpt, or Markdown work.
-        if (!this.hasBacklinks()) {
-            return;
-        }
-
-        this.meta = this.api.getMetadata(this.file)
-        this.show = this.api.getShowStatus(this.file)
-        this.collapsed = this.api.getCollapsedStatus(this.file)
+        await this.refreshBacklinks()
     }
 
     hasBacklinks(): boolean {
@@ -74,8 +65,12 @@ export default class InfluxFile {
      * Build everything needed by the UI, stopping before expensive work whenever
      * there is nothing that can produce a visible entry.
      */
-    async prepare(): Promise<boolean> {
+    async prepare(refreshBacklinks = false): Promise<boolean> {
         this.components = []
+
+        if (refreshBacklinks) {
+            await this.refreshBacklinks()
+        }
 
         if (!this.file || !this.show || !this.hasBacklinks()) {
             this.inlinkingFiles = []
@@ -92,17 +87,42 @@ export default class InfluxFile {
     }
 
     // is the file that triggers update part of the current files inlinked files?
-    shouldUpdate(file: TFile) {
+    async shouldUpdate(file: TFile): Promise<boolean> {
         const previousPaths = getBacklinkSourcePaths(this.backlinks)
-        this.backlinks = this.api.getBacklinks(this.file) // Must refresh in case of renamings.
+        await this.refreshBacklinks()
         const currentPaths = getBacklinkSourcePaths(this.backlinks)
 
         // Include the old set so removing the final link still clears the UI.
-        return previousPaths.includes(file.path) || currentPaths.includes(file.path)
+        return file.path === this.file?.path
+            || previousPaths.includes(file.path)
+            || currentPaths.includes(file.path)
+    }
+
+    private async refreshBacklinks(): Promise<void> {
+        if (!this.file) {
+            this.backlinks = null
+            this.show = false
+            this.collapsed = false
+            this.meta = null
+            return
+        }
+
+        this.backlinks = await this.api.getBacklinks(this.file)
+
+        // Backlink-free notes do not need metadata, filter, excerpt, or Markdown work.
+        if (!this.hasBacklinks()) {
+            this.show = false
+            this.collapsed = false
+            this.meta = null
+            return
+        }
+
+        this.meta = this.api.getMetadata(this.file)
+        this.show = this.api.getShowStatus(this.file)
+        this.collapsed = this.api.getCollapsedStatus(this.file)
     }
 
     async makeInfluxList() {
-        this.backlinks = this.api.getBacklinks(this.file) // Must refresh in case of renamings.
         const inlinkingFilesNew: InlinkingFile[] = []
         if (!this.show || !this.hasBacklinks()) {
             this.inlinkingFiles = inlinkingFilesNew

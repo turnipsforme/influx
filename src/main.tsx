@@ -385,7 +385,7 @@ export default class ObsidianInflux extends Plugin {
 
 				if (op === 'modify') {
 					if (this.data.settings.liveUpdate && file instanceof TFile) {
-						refreshInfluxEditorDecorations(true)
+						await refreshInfluxEditorDecorations(true)
 						await Promise.allSettled(
 							Object.values(this.componentCallbacks).map(async callback =>
 								callback(op, this.stylesheet, file),
@@ -395,7 +395,7 @@ export default class ObsidianInflux extends Plugin {
 					}
 				}
 				else {
-					refreshInfluxEditorDecorations()
+					await refreshInfluxEditorDecorations()
 					await Promise.allSettled(
 						Object.values(this.componentCallbacks).map(async callback =>
 							callback(op, this.stylesheet),
@@ -440,7 +440,7 @@ export default class ObsidianInflux extends Plugin {
 
 		// Track per-file updates to prevent concurrent updates to the same file
 		// while allowing multiple different files to update simultaneously
-		const updatePromises = previewLeaves.map(leaf => {
+		const updatePromises = previewLeaves.map(async leaf => {
 			const influxLeaf = leaf as InfluxWorkspaceLeaf;
 			const filePath = influxLeaf.view?.file?.path
 			if (!filePath) {
@@ -453,7 +453,7 @@ export default class ObsidianInflux extends Plugin {
 					return Promise.resolve()
 				}
 				const currentSignature = getBacklinkSourceSignature(
-					this.api.getBacklinks(targetFile),
+					await this.api.getBacklinks(targetFile),
 				)
 				if (this.previewBacklinkSignatures.get(filePath) === currentSignature) {
 					return Promise.resolve()

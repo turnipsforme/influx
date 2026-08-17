@@ -64,14 +64,14 @@ export class StatefulDecorationSet {
     }
 
     /** Check whether incoming sources changed without doing excerpt/render work. */
-    backlinkSourcesChanged(): boolean {
+    async backlinkSourcesChanged(): Promise<boolean> {
         const editorField = this.editor.state.field(editorViewField, false)
         const plugin = (window as any).influxPlugin
         if (!editorField?.file || !plugin) {
             return false
         }
 
-        const backlinks = plugin.api.getBacklinks(editorField.file)
+        const backlinks = await plugin.api.getBacklinks(editorField.file)
         return getBacklinkSourceSignature(backlinks) !== this.backlinkSourceSignature
     }
 
@@ -98,9 +98,16 @@ export class StatefulDecorationSet {
         const plugin = (window as any).influxPlugin
         const currentFile = this.editor.state.field(editorViewField, false)?.file
         if (plugin && currentFile) {
-            this.backlinkSourceSignature = getBacklinkSourceSignature(
-                plugin.api.getBacklinks(currentFile),
-            )
+            const currentBacklinks = await plugin.api.getBacklinks(currentFile)
+            const latestFilePath = this.editor.state.field(editorViewField, false)?.file?.path
+            if (
+                requestGeneration !== this.requestGeneration ||
+                sourceDocument !== this.editor.state.doc ||
+                sourceFilePath !== latestFilePath
+            ) {
+                return;
+            }
+            this.backlinkSourceSignature = getBacklinkSourceSignature(currentBacklinks)
         }
 
         // Safely check if we need to update decorations

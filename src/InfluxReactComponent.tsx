@@ -21,6 +21,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 	const [collapsed, setCollapsed]: [string[], React.Dispatch<React.SetStateAction<string[]>>] = React.useState(influxFile.collapsed ? components.map(component => component.inlinkingFile.file.path) : [])
 	const [toggleAllToOpen, setToggleAllToOpen] = React.useState(influxFile.collapsed)
 	const updateGeneration = React.useRef(0)
+	const updateQueue = React.useRef<Promise<void>>(Promise.resolve())
 
 	const doToggle = (sourcePath: string) => {
 		if (collapsed.includes(sourcePath)) {
@@ -45,21 +46,37 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 	React.useEffect(() => {
 
-		const respondToUpdateTrigger: (op: string, stylesheet: StyleSheetType, file?: TFile) => void = async (op, stylesheet, file) => {
-
-			if (op === 'modify' && !influxFile.shouldUpdate(file)) {
-				return
-			}
-
+		const respondToUpdateTrigger = (op: string, stylesheet: StyleSheetType, file?: TFile): Promise<void> => {
 			const generation = ++updateGeneration.current
-			await influxFile.prepare()
-			if (generation !== updateGeneration.current) {
-				return
+			const runUpdate = async () => {
+				if (generation !== updateGeneration.current) {
+					return
+				}
+
+				let backlinksRefreshed = false
+				if (op === 'modify' && file) {
+					if (!await influxFile.shouldUpdate(file)) {
+						return
+					}
+					backlinksRefreshed = true
+				}
+
+				if (generation !== updateGeneration.current) {
+					return
+				}
+
+				await influxFile.prepare(!backlinksRefreshed)
+				if (generation !== updateGeneration.current) {
+					return
+				}
+
+				setStyleSheet(preview ? influxFile.influx.stylesheetForPreview : stylesheet)
+				setComponents([...influxFile.components])
 			}
 
-			setStyleSheet(preview ? influxFile.influx.stylesheetForPreview : stylesheet)
-			setComponents([...influxFile.components])
-
+			const queued = updateQueue.current.then(runUpdate, runUpdate)
+			updateQueue.current = queued
+			return queued
 		}
 
 		influxFile.influx.registerInfluxComponent(influxFile.uuid, respondToUpdateTrigger)
