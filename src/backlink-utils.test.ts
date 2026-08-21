@@ -52,10 +52,20 @@ describe('backlink utilities', () => {
     test('does not count target-owned outbound relationship data as incoming', () => {
         const backlinks = {
             data: new Map([['Outbound destination.md', [link]]]),
-            incomingData: new Map<string, LinkCache[]>(),
+            incomingSourcePaths: [] as string[],
         };
 
         expect(hasBacklinkEntries(backlinks)).toBe(false);
         expect(getBacklinkSourcePaths(backlinks)).toEqual([]);
+    });
+
+    test('uses the captured incoming paths before augmented backlink data', () => {
+        const backlinks = {
+            data: new Map([['Outbound destination.md', [link]]]),
+            incomingSourcePaths: ['Native source.md'],
+        };
+
+        expect(hasBacklinkEntries(backlinks)).toBe(true);
+        expect(getBacklinkSourcePaths(backlinks)).toEqual(['Native source.md']);
     });
 });

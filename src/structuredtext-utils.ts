@@ -16,13 +16,9 @@ export const BULLET_SIGN = '* ';
  * Extracted from StructuredText.parseText()
  */
 export function lastNonEmptyElement(stack: string[], offset = 0): string | null {
-    let ret = offset === 0 ? [...stack] : [...stack].slice(0, -offset);
-    for (let i = ret.length - 1; i >= 0; i--) {
-        if (!ret[i]) {
-            ret = ret.slice(0, i);
-        }
-        else {
-            return ret[i];
+    for (let i = stack.length - 1 - offset; i >= 0; i--) {
+        if (stack[i]) {
+            return stack[i];
         }
     }
     return null;

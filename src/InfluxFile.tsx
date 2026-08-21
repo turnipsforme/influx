@@ -1,4 +1,4 @@
-import { TFile, CachedMetadata } from 'obsidian';
+import { TFile } from 'obsidian';
 import { ApiAdapter, BacklinksObject, ExtendedInlinkingFile } from './apiAdapter';
 import { InlinkingFile } from './InlinkingFile';
 import ObsidianInflux from './main';
@@ -7,6 +7,9 @@ import {
     getBacklinkSourcePaths,
     hasBacklinkEntries,
 } from './backlink-utils';
+import { mapWithConcurrency } from './async-utils';
+
+const MAX_CONCURRENT_SOURCE_JOBS = 8;
 
 
 export default class InfluxFile {
@@ -14,7 +17,6 @@ export default class InfluxFile {
     api: ApiAdapter;
     influx: ObsidianInflux;
     file: TFile;
-    meta: CachedMetadata;
     backlinks: BacklinksObject;
     inlinkingFiles: InlinkingFile[];
     components: ExtendedInlinkingFile[];
@@ -40,7 +42,6 @@ export default class InfluxFile {
         // Initialize with default values
         this.show = false
         this.collapsed = false
-        this.meta = null
         this.backlinks = null
         this.inlinkingFiles = []
         this.components = []
@@ -87,15 +88,18 @@ export default class InfluxFile {
     }
 
     // is the file that triggers update part of the current files inlinked files?
-    async shouldUpdate(file: TFile): Promise<boolean> {
-        const previousPaths = getBacklinkSourcePaths(this.backlinks)
+    async shouldUpdate(files: TFile | readonly TFile[]): Promise<boolean> {
+        const changedFiles = Array.isArray(files) ? files : [files]
+        const previousPaths = new Set(getBacklinkSourcePaths(this.backlinks))
         await this.refreshBacklinks()
-        const currentPaths = getBacklinkSourcePaths(this.backlinks)
+        const currentPaths = new Set(getBacklinkSourcePaths(this.backlinks))
 
         // Include the old set so removing the final link still clears the UI.
-        return file.path === this.file?.path
-            || previousPaths.includes(file.path)
-            || currentPaths.includes(file.path)
+        return changedFiles.some(file =>
+            file.path === this.file?.path
+            || previousPaths.has(file.path)
+            || currentPaths.has(file.path),
+        )
     }
 
     private async refreshBacklinks(): Promise<void> {
@@ -103,7 +107,6 @@ export default class InfluxFile {
             this.backlinks = null
             this.show = false
             this.collapsed = false
-            this.meta = null
             return
         }
 
@@ -113,11 +116,9 @@ export default class InfluxFile {
         if (!this.hasBacklinks()) {
             this.show = false
             this.collapsed = false
-            this.meta = null
             return
         }
 
-        this.meta = this.api.getMetadata(this.file)
         this.show = this.api.getShowStatus(this.file)
         this.collapsed = this.api.getCollapsedStatus(this.file)
     }
@@ -148,21 +149,51 @@ export default class InfluxFile {
                 validFiles.push(file)
             }
         }
-        await Promise.all(validFiles.map(async (file: TFile) => {
+        const sortedFiles = this.api.sortFilesForRendering(validFiles)
+        const listLimit = this.api.getSettings().listLimit
+        const processFile = async (file: TFile): Promise<InlinkingFile | null> => {
             try {
                 const inlinkingFile = new InlinkingFile(file, this.api);
                 await inlinkingFile.makeSummary(this);
-                inlinkingFilesNew.push(inlinkingFile);
+                return inlinkingFile;
             } catch (error) {
                 console.error(`[Influx] Failed to process file ${file.path}:`, error);
                 // Continue processing other files
+                return null;
             }
-        }))
-        this.inlinkingFiles = inlinkingFilesNew
+        }
+
+        const processedFiles: InlinkingFile[] = []
+        if (listLimit > 0) {
+            let nextIndex = 0
+            while (nextIndex < sortedFiles.length && processedFiles.length < listLimit) {
+                const remainingSlots = listLimit - processedFiles.length
+                const batchSize = Math.min(MAX_CONCURRENT_SOURCE_JOBS, remainingSlots)
+                const batch = sortedFiles.slice(nextIndex, nextIndex + batchSize)
+                nextIndex += batch.length
+                const results = await mapWithConcurrency(batch, MAX_CONCURRENT_SOURCE_JOBS, processFile)
+                processedFiles.push(...results.filter(
+                    (file): file is InlinkingFile => file !== null,
+                ))
+            }
+        } else {
+            const results = await mapWithConcurrency(
+                sortedFiles,
+                MAX_CONCURRENT_SOURCE_JOBS,
+                processFile,
+            )
+            processedFiles.push(...results.filter(
+                (file): file is InlinkingFile => file !== null,
+            ))
+        }
+        this.inlinkingFiles = processedFiles
 
         // Warn user if some files failed to process
-        if (inlinkingFilesNew.length < validFiles.length) {
-            console.warn(`[Influx] Only ${inlinkingFilesNew.length} of ${validFiles.length} files processed successfully`);
+        const expectedCount = listLimit > 0
+            ? Math.min(listLimit, sortedFiles.length)
+            : sortedFiles.length
+        if (this.inlinkingFiles.length < expectedCount) {
+            console.warn(`[Influx] Only ${this.inlinkingFiles.length} of ${expectedCount} files processed successfully`);
         }
     }
     async renderAllMarkdownBlocks() {

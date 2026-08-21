@@ -46,7 +46,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 	React.useEffect(() => {
 
-		const respondToUpdateTrigger = (op: string, stylesheet: StyleSheetType, file?: TFile): Promise<void> => {
+		const respondToUpdateTrigger = (op: string, stylesheet: StyleSheetType, files?: readonly TFile[]): Promise<void> => {
 			const generation = ++updateGeneration.current
 			const runUpdate = async () => {
 				if (generation !== updateGeneration.current) {
@@ -54,8 +54,8 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 				}
 
 				let backlinksRefreshed = false
-				if (op === 'modify' && file) {
-					if (!await influxFile.shouldUpdate(file)) {
+				if (op === 'modify' && files) {
+					if (!await influxFile.shouldUpdate(files)) {
 						return
 					}
 					backlinksRefreshed = true
@@ -265,7 +265,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 											<div className={classes.inlinkedEntries} >
 												{entryHeader}
 												<div
-														dangerouslySetInnerHTML={{ __html: extended.inner.innerHTML }}
+														dangerouslySetInnerHTML={{ __html: extended.innerHTML }}
 														className={classes.inlinkedEntry}
 													/>
 											</div>

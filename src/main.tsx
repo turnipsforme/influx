@@ -74,7 +74,7 @@ export const DEFAULT_SETTINGS: Partial<ObsidianInfluxSettings> = {
 export type ComponentCallback = (
 	op: string,
 	stylesheet: StyleSheetType,
-	file?: TFile,
+	files?: readonly TFile[],
 ) => void | Promise<void>
 export interface Data {
 	settings: ObsidianInfluxSettings,
@@ -83,6 +83,7 @@ export interface Data {
 
 // Constants for magic numbers
 const DEBOUNCE_DELAY_MS = 100;
+const MAX_PREVIEW_SIGNATURES = 32;
 
 // Debug mode - set to true to enable verbose logging
 const DEBUG_MODE = false;
@@ -134,18 +135,23 @@ export default class ObsidianInflux extends Plugin {
 	stylesheetForPreview: StyleSheetType;
 	api: ApiAdapter;
 	data: Data;
-	private updateDebouncers: { [key: string]: NodeJS.Timeout } = {};
+	private updateDebouncers: Map<string, number> = new Map();
+	private pendingModifiedFiles: Map<string, TFile> = new Map();
+	private isUnloading = false;
 	// Track React roots for proper cleanup to prevent memory leaks
 	// Changed from WeakMap to Map to enable explicit cleanup and iteration
 	private previewReactRoots: Map<HTMLElement, Root> = new Map();
-	// Map file paths to their container elements for cleanup on rename/delete
-	private filePathToContainer: Map<string, HTMLElement> = new Map();
+	// A file can be open in multiple reading panes at once.
+	private filePathToContainers: Map<string, Set<HTMLElement>> = new Map();
+	private containerToFilePath: Map<HTMLElement, string> = new Map();
+	private previewGenerations: WeakMap<HTMLElement, number> = new WeakMap();
 	// Track backlink-source changes even when a preview has no rendered wrapper.
 	private previewBacklinkSignatures: Map<string, string> = new Map();
 
 	async onload(): Promise<void> {
 		console.log(`Loading plugin: Influx v${this.manifest.version}`);
 
+		this.isUnloading = false;
 		this.componentCallbacks = {}
 		this.api = new ApiAdapter(this.app)
 		this.data = await this.loadDataInitially();
@@ -169,9 +175,11 @@ export default class ObsidianInflux extends Plugin {
 
 		// Metadata events run after indexing; resolve ensures the backlink graph is current.
 		this.registerEvent(this.app.metadataCache.on('changed', (file: TFile) => {
+			this.api.invalidateBacklinksCache()
 			this.triggerUpdates('modify', file)
 		}));
 		this.registerEvent(this.app.metadataCache.on('resolve', (file: TFile) => {
+			this.api.invalidateBacklinksCache()
 			this.triggerUpdates('modify', file)
 		}));
 		this.registerEvent(this.app.vault.on('rename', (file: TAbstractFile, oldPath: string) => {
@@ -256,7 +264,11 @@ export default class ObsidianInflux extends Plugin {
 			}
 		}
 		for (const container of toDelete) {
+			this.invalidatePreviewUpdate(
+				container.closest('.markdown-preview-view') as HTMLElement | null,
+			)
 			this.previewReactRoots.delete(container);
+			this.forgetPreviewContainer(container);
 			container.closest('.markdown-preview-view')?.classList.remove('influx-has-preview');
 		}
 
@@ -274,19 +286,111 @@ export default class ObsidianInflux extends Plugin {
 		});
 	}
 
+	private beginPreviewUpdate(preview: HTMLElement): number {
+		const generation = (this.previewGenerations.get(preview) ?? 0) + 1
+		this.previewGenerations.set(preview, generation)
+		return generation
+	}
+
+	private invalidatePreviewUpdate(preview: HTMLElement | null): void {
+		if (preview) {
+			this.beginPreviewUpdate(preview)
+		}
+	}
+
+	private isCurrentPreviewUpdate(
+		preview: HTMLElement,
+		generation: number,
+		leaf?: WorkspaceLeaf,
+		path?: string,
+	): boolean {
+		if (
+			this.isUnloading
+			|| !preview.isConnected
+			|| this.previewGenerations.get(preview) !== generation
+		) {
+			return false
+		}
+		if (!leaf || !path) {
+			return true
+		}
+
+		const influxLeaf = leaf as InfluxWorkspaceLeaf
+		return influxLeaf.view?.file?.path === path
+			&& influxLeaf.containerEl.querySelector('.markdown-preview-view') === preview
+	}
+
+	private setPreviewBacklinkSignature(
+		filePath: string,
+		backlinks: InfluxFile['backlinks'],
+	): void {
+		this.previewBacklinkSignatures.delete(filePath)
+		this.previewBacklinkSignatures.set(
+			filePath,
+			getBacklinkSourceSignature(backlinks),
+		)
+
+		while (this.previewBacklinkSignatures.size > MAX_PREVIEW_SIGNATURES) {
+			const stalePath = Array.from(this.previewBacklinkSignatures.keys())
+				.find(path => !this.filePathToContainers.has(path))
+				?? this.previewBacklinkSignatures.keys().next().value
+			if (stalePath === undefined) {
+				return
+			}
+			this.previewBacklinkSignatures.delete(stalePath)
+		}
+	}
+
+	private forgetPreviewContainer(container: HTMLElement): void {
+		const filePath = this.containerToFilePath.get(container)
+		if (!filePath) {
+			return
+		}
+
+		this.containerToFilePath.delete(container)
+		const containers = this.filePathToContainers.get(filePath)
+		if (!containers) {
+			return
+		}
+		containers.delete(container)
+		if (containers.size === 0) {
+			this.filePathToContainers.delete(filePath)
+			this.previewBacklinkSignatures.delete(filePath)
+		}
+	}
+
+	private trackPreviewContainer(filePath: string, container: HTMLElement): void {
+		const previousPath = this.containerToFilePath.get(container)
+		if (previousPath && previousPath !== filePath) {
+			this.forgetPreviewContainer(container)
+		}
+
+		let containers = this.filePathToContainers.get(filePath)
+		if (!containers) {
+			containers = new Set()
+			this.filePathToContainers.set(filePath, containers)
+		}
+		containers.add(container)
+		this.containerToFilePath.set(container, filePath)
+	}
+
 	/**
 	 * Cleanup React roots for a specific file path.
 	 * Call this when files are deleted, renamed, or moved.
 	 */
 	private cleanupFileReactRoots(filePath: string): void {
-		const container = this.filePathToContainer.get(filePath);
-		if (container) {
+		const containers = Array.from(this.filePathToContainers.get(filePath) ?? [])
+		this.filePathToContainers.delete(filePath)
+		for (const container of containers) {
+			this.containerToFilePath.delete(container)
+			this.invalidatePreviewUpdate(
+				container.closest('.markdown-preview-view') as HTMLElement | null,
+			)
 			const root = this.previewReactRoots.get(container);
 			if (root) {
 				root.unmount();
 				this.previewReactRoots.delete(container);
 			}
-			this.filePathToContainer.delete(filePath);
 
 			// Remove the wrapper from DOM
 			const previewView = container.closest('.markdown-preview-view');
@@ -308,10 +412,12 @@ export default class ObsidianInflux extends Plugin {
 	}
 
 	async onunload() {
-		for (const timeout of Object.values(this.updateDebouncers)) {
-			clearTimeout(timeout);
+		this.isUnloading = true;
+		for (const timeout of this.updateDebouncers.values()) {
+			window.clearTimeout(timeout);
 		}
-		this.updateDebouncers = {};
+		this.updateDebouncers.clear();
+		this.pendingModifiedFiles.clear();
 		this.pendingUpdates.clear();
 		this.updating.clear();
 		this.pendingPreviewUpdates.clear();
@@ -326,10 +432,24 @@ export default class ObsidianInflux extends Plugin {
 		// Clean up all React roots on plugin unload
 		for (const [container, root] of this.previewReactRoots) {
 			root.unmount();
+			const preview = container.closest('.markdown-preview-view')
+			container.closest('.influx-preview-wrapper')?.remove()
+			if (!preview?.querySelector('.influx-preview-wrapper')) {
+				preview?.classList.remove('influx-has-preview')
+			}
 		}
 		this.previewReactRoots.clear();
-		this.filePathToContainer.clear();
+		this.filePathToContainers.clear();
+		this.containerToFilePath.clear();
 		this.previewBacklinkSignatures.clear();
+		this.componentCallbacks = {};
+		if (this.api) {
+			this.api.dispose();
+		}
+		delete window.testInfluxReadingView;
+		if (DEBUG_MODE) {
+			delete (window as any).influxDebug;
+		}
 	}
 
 	registerInfluxComponent(id: string, callback: ComponentCallback) {
@@ -345,21 +465,42 @@ export default class ObsidianInflux extends Plugin {
 	}
 
 	triggerUpdates(op: string, file?: TAbstractFile) {
+		if (this.isUnloading) {
+			return
+		}
+		if (op === 'modify') {
+			if (!this.data.settings.liveUpdate || !(file instanceof TFile)) {
+				return;
+			}
+			this.pendingModifiedFiles.set(file.path, file);
+		}
+
 		// Create a unique key for this update to prevent overlapping async operations
-		const updateKey = `${op}:${file?.path || 'global'}`;
+		const updateKey = op === 'modify'
+			? 'modify:global'
+			: `${op}:${file?.path || 'global'}`;
 
 		// Reset the timer so this is a real trailing-edge debounce.
-		if (this.updateDebouncers[updateKey]) {
-			clearTimeout(this.updateDebouncers[updateKey])
+		const existingTimeout = this.updateDebouncers.get(updateKey)
+		if (existingTimeout !== undefined) {
+			window.clearTimeout(existingTimeout)
 		}
 		this.pendingUpdates.add(updateKey);
 
 		// Debounce rapid successive updates to prevent conflicts
-		this.updateDebouncers[updateKey] = setTimeout(async () => {
+		const timeoutId = window.setTimeout(async () => {
+			const modifiedFiles = op === 'modify'
+				? Array.from(this.pendingModifiedFiles.values())
+				: []
+			if (op === 'modify') {
+				this.pendingModifiedFiles.clear()
+			}
+
 			try {
-				if (op === 'modify') {
-					this.api.invalidateBacklinksCache();
-				} else if (op === 'rename' || op === 'delete') {
+				if (this.isUnloading) {
+					return
+				}
+				if (op === 'rename' || op === 'delete') {
 					this.api.invalidateFileCache();
 				} else if (op === 'save-settings') {
 					this.api.invalidateSettingsCache();
@@ -384,23 +525,35 @@ export default class ObsidianInflux extends Plugin {
 				}
 
 				if (op === 'modify') {
-					if (this.data.settings.liveUpdate && file instanceof TFile) {
+					if (modifiedFiles.length > 0) {
 						await refreshInfluxEditorDecorations(true)
+						if (this.isUnloading) {
+							return
+						}
 						await Promise.allSettled(
 							Object.values(this.componentCallbacks).map(async callback =>
-								callback(op, this.stylesheet, file),
+								callback(op, this.stylesheet, modifiedFiles),
 							),
 						)
-						await this.updateInfluxInAllPreviews(file)
+						if (this.isUnloading) {
+							return
+						}
+						await this.updateInfluxInAllPreviews(true)
 					}
 				}
 				else {
 					await refreshInfluxEditorDecorations()
+					if (this.isUnloading) {
+						return
+					}
 					await Promise.allSettled(
 						Object.values(this.componentCallbacks).map(async callback =>
 							callback(op, this.stylesheet),
 						),
 					)
+					if (this.isUnloading) {
+						return
+					}
 					await this.updateInfluxInAllPreviews()
 				}
 				if (DEBUG_MODE) {
@@ -410,13 +563,19 @@ export default class ObsidianInflux extends Plugin {
 				console.error(`[Influx] Failed to process ${op} update:`, error);
 			} finally {
 				// Always clear pending state, even if update fails
-				this.pendingUpdates.delete(updateKey);
-				delete this.updateDebouncers[updateKey]
+				if (this.updateDebouncers.get(updateKey) === timeoutId) {
+					this.pendingUpdates.delete(updateKey);
+					this.updateDebouncers.delete(updateKey)
+				}
 			}
 		}, DEBOUNCE_DELAY_MS)
+		this.updateDebouncers.set(updateKey, timeoutId)
 	}
 
-	async updateInfluxInAllPreviews(changedFile?: TFile) {
+	async updateInfluxInAllPreviews(backlinksOnly = false) {
+		if (this.isUnloading) {
+			return
+		}
 		/**
 		 * ! This is best-effort feature to maintain a live-updated
 		 * ! influx footer in preview mode pages. It's buggy.
@@ -441,13 +600,16 @@ export default class ObsidianInflux extends Plugin {
 		// Track per-file updates to prevent concurrent updates to the same file
 		// while allowing multiple different files to update simultaneously
 		const updatePromises = previewLeaves.map(async leaf => {
+			if (this.isUnloading) {
+				return
+			}
 			const influxLeaf = leaf as InfluxWorkspaceLeaf;
 			const filePath = influxLeaf.view?.file?.path
 			if (!filePath) {
 				return Promise.resolve()
 			}
 
-			if (changedFile) {
+			if (backlinksOnly) {
 				const targetFile = this.api.getFileByPath(filePath)
 				if (!targetFile) {
 					return Promise.resolve()
@@ -455,6 +617,9 @@ export default class ObsidianInflux extends Plugin {
 				const currentSignature = getBacklinkSourceSignature(
 					await this.api.getBacklinks(targetFile),
 				)
+				if (this.isUnloading) {
+					return
+				}
 				if (this.previewBacklinkSignatures.get(filePath) === currentSignature) {
 					return Promise.resolve()
 				}
@@ -467,6 +632,9 @@ export default class ObsidianInflux extends Plugin {
 	}
 
 	private async queueInfluxPreviewUpdate(leaf: WorkspaceLeaf): Promise<void> {
+		if (this.isUnloading) {
+			return
+		}
 		if (this.updating.has(leaf)) {
 			this.pendingPreviewUpdates.add(leaf)
 			return
@@ -477,17 +645,20 @@ export default class ObsidianInflux extends Plugin {
 			await this.updateInfluxInPreview(leaf)
 		} finally {
 			this.updating.delete(leaf)
-			if (this.pendingPreviewUpdates.delete(leaf)) {
+			if (!this.isUnloading && this.pendingPreviewUpdates.delete(leaf)) {
 				await this.queueInfluxPreviewUpdate(leaf)
 			}
 		}
 	}
 
 	async updateInfluxInPreview(leaf: WorkspaceLeaf) {
+		if (this.isUnloading) {
+			return
+		}
 		const influxLeaf = leaf as InfluxWorkspaceLeaf;
 		const container: HTMLDivElement = influxLeaf.containerEl
 
-		const previewDiv = container.querySelector(".markdown-preview-view");
+		const previewDiv = container.querySelector(".markdown-preview-view") as HTMLElement | null;
 
 		if (!previewDiv) {
 			throw new Error('No preview found')
@@ -499,17 +670,19 @@ export default class ObsidianInflux extends Plugin {
 		if (!path) {
 			throw new Error('No file path found')
 		}
-
-		// Check if we already have an Influx container for this file
-		// Use a single query with descendant selector to avoid multiple DOM traversals
-		const existingContainer = previewDiv.querySelector('.influx-preview-wrapper > influx-preview-container') as HTMLElement
+		const generation = this.beginPreviewUpdate(previewDiv)
 
 		const influxFile = await InfluxFile.create(path, apiAdapter, this)
-		this.previewBacklinkSignatures.set(
-			path,
-			getBacklinkSourceSignature(influxFile.backlinks),
-		)
+		if (!this.isCurrentPreviewUpdate(previewDiv, generation, leaf, path)) {
+			return
+		}
 		const hasVisibleEntries = await influxFile.prepare()
+		if (!this.isCurrentPreviewUpdate(previewDiv, generation, leaf, path)) {
+			return
+		}
+
+		// Re-query after async work because the leaf may have been rebuilt.
+		const existingContainer = previewDiv.querySelector('.influx-preview-wrapper > influx-preview-container') as HTMLElement
 		if (!hasVisibleEntries) {
 			previewDiv.classList.remove('influx-has-preview')
 			if (existingContainer) {
@@ -518,9 +691,10 @@ export default class ObsidianInflux extends Plugin {
 					existingRoot.unmount()
 					this.previewReactRoots.delete(existingContainer)
 				}
+				this.forgetPreviewContainer(existingContainer)
 				existingContainer.closest('.influx-preview-wrapper')?.remove()
 			}
-			this.filePathToContainer.delete(path)
+			this.setPreviewBacklinkSignature(path, influxFile.backlinks)
 			return
 		}
 		previewDiv.classList.add('influx-has-preview')
@@ -531,7 +705,7 @@ export default class ObsidianInflux extends Plugin {
 			// Reuse existing container and root
 			anchor = this.previewReactRoots.get(existingContainer) || createRoot(existingContainer)
 			this.previewReactRoots.set(existingContainer, anchor)
-			this.filePathToContainer.set(path, existingContainer)
+			this.trackPreviewContainer(path, existingContainer)
 		} else {
 			// Clean up any old containers and their parent wrappers
 			const oldContainers = previewDiv.querySelectorAll("influx-preview-container")
@@ -542,6 +716,7 @@ export default class ObsidianInflux extends Plugin {
 					oldRoot.unmount()
 					this.previewReactRoots.delete(oldContainer)
 				}
+				this.forgetPreviewContainer(oldContainer)
 				// Remove the entire wrapper, not just the container
 				const wrapper = oldContainer.closest('.influx-preview-wrapper');
 				wrapper?.remove();
@@ -572,7 +747,10 @@ export default class ObsidianInflux extends Plugin {
 			// Create and track the React root
 			anchor = createRoot(influxContainer);
 			this.previewReactRoots.set(influxContainer, anchor);
-			this.filePathToContainer.set(path, influxContainer);
+			this.trackPreviewContainer(path, influxContainer);
+		}
+		if (!this.isCurrentPreviewUpdate(previewDiv, generation, leaf, path)) {
+			return
 		}
 
 		// Render or update the React component
@@ -582,9 +760,13 @@ export default class ObsidianInflux extends Plugin {
 			preview={true}
 			sheet={this.stylesheetForPreview}
 		/>);
+		this.setPreviewBacklinkSignature(path, influxFile.backlinks)
 	}
 
 	async handlePreviewMode(element: HTMLElement, context: any) {
+		if (this.isUnloading) {
+			return
+		}
 		// Only process if this is a markdown preview element
 		if (!element.classList.contains('markdown-preview-view')) {
 			return;
@@ -595,6 +777,7 @@ export default class ObsidianInflux extends Plugin {
 		if (!filePath) {
 			return;
 		}
+		const generation = this.beginPreviewUpdate(element)
 
 		debugLog('[handlePreviewMode] Processing file:', filePath);
 		element.classList.remove('influx-has-preview');
@@ -611,6 +794,7 @@ export default class ObsidianInflux extends Plugin {
 					root.unmount();
 					this.previewReactRoots.delete(container);
 				}
+				this.forgetPreviewContainer(container);
 			}
 			wrapper.remove();
 		});
@@ -625,17 +809,20 @@ export default class ObsidianInflux extends Plugin {
 				root.unmount();
 				this.previewReactRoots.delete(container as HTMLElement);
 			}
+			this.forgetPreviewContainer(container as HTMLElement);
 			(container as HTMLElement).remove();
 		});
-		this.filePathToContainer.delete(filePath);
-
 		try {
 			const influxFile = await InfluxFile.create(filePath, this.api, this);
-			this.previewBacklinkSignatures.set(
-				filePath,
-				getBacklinkSourceSignature(influxFile.backlinks),
-			)
-			if (!await influxFile.prepare()) {
+			if (!this.isCurrentPreviewUpdate(element, generation)) {
+				return
+			}
+			const hasVisibleEntries = await influxFile.prepare()
+			if (!this.isCurrentPreviewUpdate(element, generation)) {
+				return
+			}
+			if (!hasVisibleEntries) {
+				this.setPreviewBacklinkSignature(filePath, influxFile.backlinks)
 				return;
 			}
 			element.classList.add('influx-has-preview');
@@ -658,19 +845,23 @@ export default class ObsidianInflux extends Plugin {
 				// Append to the end (bottom of content)
 				element.appendChild(influxWrapper);
 			}
+			if (!this.isCurrentPreviewUpdate(element, generation)) {
+				return
+			}
 
 			// Create and track the React root
 			const anchor = createRoot(influxContainer);
 			this.previewReactRoots.set(influxContainer, anchor);
-			this.filePathToContainer.set(filePath, influxContainer);
+			this.trackPreviewContainer(filePath, influxContainer);
 			anchor.render(<InfluxReactComponent
 				key={influxFile.uuid}
 				influxFile={influxFile}
 				preview={true}
 				sheet={this.stylesheetForPreview}
 			/>);
+			this.setPreviewBacklinkSignature(filePath, influxFile.backlinks)
 		} catch (error) {
-			if (!element.querySelector('.influx-preview-wrapper')) {
+			if (this.isCurrentPreviewUpdate(element, generation) && !element.querySelector('.influx-preview-wrapper')) {
 				element.classList.remove('influx-has-preview');
 			}
 			debugLog('[handlePreviewMode] Failed to render:', error)

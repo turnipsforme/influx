@@ -92,4 +92,110 @@ describe('InfluxFile processing guard', () => {
 
         await expect(influxFile.shouldUpdate({ path: changedPath } as TFile)).resolves.toBe(expected);
     });
+
+    test('checks a batched metadata update in one backlink refresh', async () => {
+        const current = new Map<string, LinkCache[]>([['Source.md', [link]]]);
+        const { api } = createApi(current);
+        const influxFile = await InfluxFile.create(
+            'Target.md',
+            api,
+            {} as ObsidianInflux,
+        );
+        (api.getBacklinks as jest.Mock).mockClear();
+
+        await expect(influxFile.shouldUpdate([
+            { path: 'Other.md' } as TFile,
+            { path: 'Source.md' } as TFile,
+        ])).resolves.toBe(true);
+        expect(api.getBacklinks).toHaveBeenCalledTimes(1);
+    });
+
+    test('applies the list limit before reading source files', async () => {
+        const target = { path: 'Target.md', basename: 'Target' } as TFile;
+        const sources = new Map<string, TFile>([
+            ['A.md', { path: 'A.md', basename: 'A' } as TFile],
+            ['B.md', { path: 'B.md', basename: 'B' } as TFile],
+            ['C.md', { path: 'C.md', basename: 'C' } as TFile],
+        ]);
+        const backlinkData = new Map(
+            Array.from(sources.keys(), path => [path, [link]]),
+        );
+        const readFile = jest.fn(async () => 'A line with [[Target]].');
+        const sortFilesForRendering = jest.fn((files: TFile[]) => files);
+        const api = {
+            getFileByPath: jest.fn((path: string) => path === target.path ? target : sources.get(path) ?? null),
+            getBacklinks: jest.fn(async () => ({ data: backlinkData })),
+            getMetadata: jest.fn((file: TFile) => file === target ? {} : {
+                links: [{
+                    link: 'Target',
+                    position: { start: { line: 0 } },
+                }],
+            }),
+            getShowStatus: jest.fn(() => true),
+            getCollapsedStatus: jest.fn(() => false),
+            isIncludableSource: jest.fn(() => true),
+            sortFilesForRendering,
+            getSettings: jest.fn(() => ({ listLimit: 1 })),
+            readFile,
+            compareLinkName: jest.fn(() => true),
+        } as unknown as ApiAdapter;
+
+        const influxFile = await InfluxFile.create(
+            target.path,
+            api,
+            {} as ObsidianInflux,
+        );
+        await influxFile.makeInfluxList();
+
+        expect(sortFilesForRendering).toHaveBeenCalledWith(expect.any(Array));
+        expect(readFile).toHaveBeenCalledTimes(1);
+        expect(influxFile.inlinkingFiles).toHaveLength(1);
+    });
+
+    test('backfills the list limit when a higher-ranked source fails', async () => {
+        const target = { path: 'Target.md', basename: 'Target' } as TFile;
+        const sources = new Map<string, TFile>([
+            ['A.md', { path: 'A.md', basename: 'A' } as TFile],
+            ['B.md', { path: 'B.md', basename: 'B' } as TFile],
+            ['C.md', { path: 'C.md', basename: 'C' } as TFile],
+        ]);
+        const backlinkData = new Map(
+            Array.from(sources.keys(), path => [path, [link]]),
+        );
+        const readFile = jest.fn(async (file: TFile) => {
+            if (file.path === 'A.md') {
+                throw new Error('unreadable');
+            }
+            return 'A line with [[Target]].';
+        });
+        const api = {
+            getFileByPath: jest.fn((path: string) => path === target.path ? target : sources.get(path) ?? null),
+            getBacklinks: jest.fn(async () => ({ data: backlinkData })),
+            getMetadata: jest.fn((file: TFile) => file === target ? {} : {
+                links: [{
+                    link: 'Target',
+                    position: { start: { line: 0 } },
+                }],
+            }),
+            getShowStatus: jest.fn(() => true),
+            getCollapsedStatus: jest.fn(() => false),
+            isIncludableSource: jest.fn(() => true),
+            sortFilesForRendering: jest.fn((files: TFile[]) => files),
+            getSettings: jest.fn(() => ({ listLimit: 2 })),
+            readFile,
+            compareLinkName: jest.fn(() => true),
+        } as unknown as ApiAdapter;
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        const influxFile = await InfluxFile.create(
+            target.path,
+            api,
+            {} as ObsidianInflux,
+        );
+        await influxFile.makeInfluxList();
+        consoleError.mockRestore();
+
+        expect(readFile).toHaveBeenCalledTimes(3);
+        expect(influxFile.inlinkingFiles.map(file => file.file.path)).toEqual(['B.md', 'C.md']);
+    });
 });

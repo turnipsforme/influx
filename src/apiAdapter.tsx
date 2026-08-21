@@ -11,29 +11,46 @@ import {
     type FilterSettings
 } from './settings-utils';
 import {
+    getBacklinkSourcePaths,
+} from './backlink-utils';
+import {
     getFreshBacklinks,
     isBacklinkCacheActive,
     type BacklinkMetadataCache,
 } from './backlink-cache';
+import { createConcurrencyLimiter, mapWithConcurrency } from './async-utils';
+
+const MAX_BACKLINK_CACHE_ENTRIES = 32;
+const MAX_CONCURRENT_BACKLINK_LOADS = 8;
+const MAX_CONCURRENT_RENDER_JOBS = 8;
 
 export type BacklinksObject = {
     data: Map<string, LinkCache[]> | Record<string, LinkCache[]>;
+    /** Stable native source paths captured before optional relationship augmentation. */
+    incomingSourcePaths?: readonly string[];
     /** Unmodified incoming links returned by Obsidian. */
     incomingData?: Map<string, LinkCache[]> | Record<string, LinkCache[]>;
 }
 export type ExtendedInlinkingFile = {
     inlinkingFile: InlinkingFile;
     titleInnerHTML: string;
-    inner: HTMLDivElement;
+    innerHTML: string;
 }
 
-export class ApiAdapter extends Component {
+type BacklinkLoadResult = {
+    backlinks: BacklinksObject;
+    generation: number;
+}
+
+export class ApiAdapter {
     app: App;
-    // File operation caching to reduce I/O overhead
-    private fileCache: Map<string, TFile> = new Map();
-    // One promise per target note, cleared by metadata events. This coalesces
-    // concurrent native vault scans without keeping a long-lived stale cache.
-    private backlinksCache: Map<string, Promise<BacklinksObject>> = new Map();
+    // Keep unresolved requests separate so the LRU never evicts active work and
+    // concurrent consumers of one target always share the same vault scan.
+    private backlinkRequests: Map<string, Promise<BacklinkLoadResult>> = new Map();
+    private backlinksCache: Map<string, BacklinksObject> = new Map();
+    private backlinkLoadLimiter = createConcurrencyLimiter(MAX_CONCURRENT_BACKLINK_LOADS);
+    private backlinkGeneration = 0;
+    private disposed = false;
     private settingsCache: ObsidianInfluxSettings | null = null;
     // Cache compiled regex patterns to avoid recompilation on every pattern match
     // Use null as a sentinel value for invalid regex patterns
@@ -42,7 +59,6 @@ export class ApiAdapter extends Component {
     private static readonly INVALID_REGEX_SENTINEL: RegExp | null = null;
 
     constructor(app: App) {
-        super();
         this.app = app;
     }
     
@@ -51,40 +67,90 @@ export class ApiAdapter extends Component {
      * ==================
      */
     getFileByPath(path: string): TFile | null {
-        // Check cache first to reduce I/O
-        if (this.fileCache.has(path)) {
-            return this.fileCache.get(path)!;
-        }
-
         const file = this.app.vault.getAbstractFileByPath(path);
-        if (file instanceof TFile) {
-            this.fileCache.set(path, file);
-            return file;
-        }
-        return null;
+        return file instanceof TFile ? file : null;
     }
     async readFile(file: TFile): Promise<string> {
-        return await this.app.vault.read(file);
+        return await this.app.vault.cachedRead(file);
     }
-    getMetadata(file: TFile): CachedMetadata {
+    getMetadata(file: TFile): CachedMetadata | null {
         return this.app.metadataCache.getFileCache(file);
     }
     async getBacklinks(file: TFile): Promise<BacklinksObject> {
-        const cached = this.backlinksCache.get(file.path);
-        if (cached) {
-            return await cached;
+        if (this.disposed) {
+            throw new Error('[Influx] Backlink adapter has been unloaded');
         }
 
-        const request = this.loadBacklinks(file);
-        this.backlinksCache.set(file.path, request);
+        const path = file.path;
+        const cached = this.backlinksCache.get(path);
+        if (cached) {
+            // Refresh insertion order so the bounded map behaves as an LRU.
+            this.backlinksCache.delete(path);
+            this.backlinksCache.set(path, cached);
+            return cached;
+        }
 
+        const pending = this.backlinkRequests.get(path);
+        if (pending) {
+            return this.resolveBacklinkRequest(file, path, pending);
+        }
+
+        const request = this.loadCurrentBacklinks(file);
+        this.backlinkRequests.set(path, request);
+
+        return this.resolveBacklinkRequest(file, path, request);
+    }
+
+    private async resolveBacklinkRequest(
+        file: TFile,
+        path: string,
+        request: Promise<BacklinkLoadResult>,
+    ): Promise<BacklinksObject> {
         try {
-            return await request;
+            const { backlinks, generation } = await request;
+            if (generation !== this.backlinkGeneration) {
+                if (this.backlinkRequests.get(path) === request) {
+                    this.backlinkRequests.delete(path);
+                }
+                return this.getBacklinks(file);
+            }
+            if (this.backlinkRequests.get(path) === request) {
+                this.backlinkRequests.delete(path);
+                this.cacheBacklinks(path, backlinks);
+            }
+            return backlinks;
         } catch (error) {
-            if (this.backlinksCache.get(file.path) === request) {
-                this.backlinksCache.delete(file.path);
+            if (this.backlinkRequests.get(path) === request) {
+                this.backlinkRequests.delete(path);
             }
             throw error;
+        }
+    }
+
+    private async loadCurrentBacklinks(file: TFile): Promise<BacklinkLoadResult> {
+        while (!this.disposed) {
+            const result = await this.backlinkLoadLimiter.run(async () => {
+                if (this.disposed) {
+                    throw new Error('[Influx] Backlink adapter has been unloaded');
+                }
+                const generation = this.backlinkGeneration;
+                const backlinks = await this.loadBacklinks(file);
+                return { backlinks, generation };
+            });
+            if (result.generation === this.backlinkGeneration) {
+                return result;
+            }
+        }
+        throw new Error('[Influx] Backlink adapter has been unloaded');
+    }
+
+    private cacheBacklinks(path: string, backlinks: BacklinksObject): void {
+        this.backlinksCache.set(path, backlinks);
+        if (this.backlinksCache.size > MAX_BACKLINK_CACHE_ENTRIES) {
+            const oldestPath = this.backlinksCache.keys().next().value;
+            if (oldestPath !== undefined) {
+                this.backlinksCache.delete(oldestPath);
+            }
         }
     }
 
@@ -96,7 +162,7 @@ export class ApiAdapter extends Component {
         // Frontmatter processing adds entries, so clone the native cache instead
         // of mutating Obsidian's shared metadata object.
         const backlinks = this.cloneBacklinks(rawBacklinks);
-        const incomingBacklinks = this.cloneBacklinks(rawBacklinks);
+        const incomingSourcePaths = getBacklinkSourcePaths(rawBacklinks);
         const metadata = this.app.metadataCache.getFileCache(file);
         
         // Process front matter links using the pure function pipeline
@@ -106,9 +172,9 @@ export class ApiAdapter extends Component {
         }
 
         // The target note's own frontmatter links are outbound relationships.
-        // Keep native incoming data separate so they cannot make a zero-inlink
+        // Keep native incoming paths separate so they cannot make a zero-inlink
         // note look backlinked or trigger editor processing on their own.
-        backlinks.incomingData = incomingBacklinks.data;
+        backlinks.incomingSourcePaths = incomingSourcePaths;
         
         return backlinks;
     }
@@ -133,17 +199,23 @@ export class ApiAdapter extends Component {
         }
         return { data: clonedData };
     }
-    async renderMarkdown(markdown: string): Promise<HTMLDivElement> {
+    async renderMarkdown(markdown: string): Promise<string> {
         const div = document.createElement('div');
-        await MarkdownRenderer.renderMarkdown(markdown, div, '/', this);
+        const renderComponent = new Component();
+        renderComponent.load();
+        try {
+            await MarkdownRenderer.renderMarkdown(markdown, div, '/', renderComponent);
 
-        // Disable checkboxes in preview mode to prevent interaction
-        // Use direct DOM manipulation instead of innerHTML replacement for better performance
-        const checkboxes = Array.from(div.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
-        for (const checkbox of checkboxes) {
-            checkbox.disabled = true;
+            // Disable checkboxes in preview mode to prevent interaction.
+            const checkboxes = Array.from(div.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+            for (const checkbox of checkboxes) {
+                checkbox.disabled = true;
+            }
+            return div.innerHTML;
+        } finally {
+            // Rendering children are no longer needed after the HTML snapshot.
+            renderComponent.unload();
         }
-        return div;
     }
     getSettings(): ObsidianInfluxSettings {
         // Return cached settings to reduce property access overhead
@@ -161,25 +233,43 @@ export class ApiAdapter extends Component {
     }
     /** Clear all caches - call when settings change or files are modified */
     clearCache(): void {
-        this.fileCache.clear();
+        this.backlinkGeneration++;
         this.backlinksCache.clear();
         this.settingsCache = null;
         this.regexCache.clear();
     }
     /** Start a fresh event-driven backlink update batch. */
     invalidateBacklinksCache(): void {
+        this.backlinkGeneration++;
         this.backlinksCache.clear();
     }
     /** File renames/deletions can invalidate path and backlink lookups. */
     invalidateFileCache(): void {
-        this.fileCache.clear();
+        this.backlinkGeneration++;
+        // A TFile's path can change during a rename. Do not let an old request
+        // be reused for a future file that takes its previous path.
+        this.backlinkRequests.clear();
         this.backlinksCache.clear();
     }
     /** Invalidate settings cache - call when settings are changed via UI */
     invalidateSettingsCache(): void {
         this.settingsCache = null;
         this.regexCache.clear(); // Clear regex cache so new patterns are compiled
+        this.backlinkGeneration++;
         this.backlinksCache.clear();
+    }
+
+    /** Stop queued work and release all local references during plugin unload. */
+    dispose(): void {
+        this.disposed = true;
+        this.backlinkGeneration++;
+        this.backlinkLoadLimiter.cancelQueued(
+            new Error('[Influx] Backlink adapter has been unloaded'),
+        );
+        this.backlinkRequests.clear();
+        this.backlinksCache.clear();
+        this.settingsCache = null;
+        this.regexCache.clear();
     }
     /** Pre-compile all regex patterns from settings to eliminate JIT overhead on critical path */
     preCompileRegexPatterns(settings: Partial<ObsidianInfluxSettings>): void {
@@ -257,13 +347,22 @@ export class ApiAdapter extends Component {
         // Use extracted pure function for file comparison
         return createInlinkingFileComparator(settings) as (a: InlinkingFile, b: InlinkingFile) => 0 | 1 | -1;
     }
+    /** Sort source files before any file reads or Markdown parsing. */
+    sortFilesForRendering(files: TFile[]): TFile[] {
+        const settings = this.getSettings();
+        const comparator = createInlinkingFileComparator(settings);
+        return [...files].sort((a, b) => comparator({ file: a }, { file: b }));
+    }
     async renderAllMarkdownBlocks(inlinkingsFiles: InlinkingFile[]): Promise<ExtendedInlinkingFile[]> {
         const settings: Partial<ObsidianInfluxSettings> = this.getSettings()
         const comparator = this.makeComparisonFn()
-        const components = await Promise.all(inlinkingsFiles
+        const selectedFiles = inlinkingsFiles
             .sort(comparator)
             .slice(0, settings.listLimit || inlinkingsFiles.length)
-            .map(async (inlinkingFile) => {
+        const components = await mapWithConcurrency(
+            selectedFiles,
+            MAX_CONCURRENT_RENDER_JOBS,
+            async (inlinkingFile) => {
                 // Parallelize the two renderMarkdown calls to avoid sequential blocking
                 const [titleAsMd, summaryAsMd] = await Promise.all([
                     this.renderMarkdown(`_${inlinkingFile.title}`),
@@ -271,17 +370,18 @@ export class ApiAdapter extends Component {
                 ])
 
                 // Optimize string processing: remove p tags, then clean up any remaining underscores
-                const titleInnerHTML = titleAsMd.innerHTML
+                const titleInnerHTML = titleAsMd
                     .replace(/<\/?p[^>]*>/g, '')  // Remove <p>, </p> tags
                     .replace(/^_/, '')            // Remove leading underscore (now at start after p tag removal)
 
                 const extended: ExtendedInlinkingFile = {
                     inlinkingFile: inlinkingFile,
                     titleInnerHTML: titleInnerHTML,
-                    inner: summaryAsMd,
+                    innerHTML: summaryAsMd,
                 }
                 return extended
-            }))
+            },
+        )
         return components
     }
     /** comparison fn for filter in function to make contextual summaries,
