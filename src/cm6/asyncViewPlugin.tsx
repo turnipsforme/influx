@@ -1,7 +1,8 @@
 import { EditorView, ViewUpdate, ViewPlugin } from "@codemirror/view";
 import { StatefulDecorationSet } from "./StatefulDecorationSet";
 import { statefulDecorations } from "./helpers";
-import { debounce } from "obsidian";
+import { debounce, Platform } from "obsidian";
+import { shouldSuppressInfluxForTableEditing } from "./placement-utils";
 
 const activeEditorPlugins = new Set<InfluxEditorViewPlugin>();
 
@@ -26,8 +27,45 @@ class InfluxEditorViewPlugin {
          * Changes to other documents that are referenced in the influx of host file are not caught.
          */
         if (update.docChanged) {
-            this.debouncedShow(update.view)
+            if (Platform.isMobile && shouldSuppressInfluxForTableEditing(update.view.state)) {
+                // Mobile: recomputing on the 3s debounce while the virtual keyboard
+                // is open inserts/removes a block widget mid-composition, forcing a
+                // re-measure that glitches scroll position away from the caret.
+                // Drop the widget immediately, then let the regular debounced
+                // recomputation restore it once editing settles.
+                this.debouncedShow?.cancel?.();
+                this.hideWidgetSoon();
+                this.debouncedShow(update.view);
+                return;
+            }
+            this.debouncedShow(update.view);
+            return;
         }
+
+        if (Platform.isMobile && update.selectionSet) {
+            // Mobile taps move the caret without changing the document, so
+            // doc-only updates leave stale widgets anchored near tables. Keep
+            // suppression in sync with the caret position as it moves.
+            if (shouldSuppressInfluxForTableEditing(update.view.state)) {
+                this.hideWidgetSoon();
+            }
+        }
+    }
+
+    private hidePending = false;
+
+    /** Defer one frame so we never dispatch during an in-progress CM6 update cycle. */
+    private hideWidgetSoon(): void {
+        if (this.hidePending) return;
+        this.hidePending = true;
+        queueMicrotask(() => {
+            this.hidePending = false;
+            try {
+                this.statefulDecorationsSet.hideIfShowing();
+            } catch {
+                // View may already be tearing down; ignore.
+            }
+        });
     }
 
     debouncedShow = debounce((view: EditorView) => {

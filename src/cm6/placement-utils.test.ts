@@ -1,5 +1,10 @@
 import { EditorState } from "@codemirror/state";
-import { containsMarkdownTable, findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
+import {
+	containsMarkdownTable,
+	findInfluxWidgetPosition,
+	isSelectionInMarkdownTable,
+	shouldSuppressInfluxForTableEditing,
+} from "./placement-utils";
 
 function stateFromDoc(doc: string): EditorState {
 	return EditorState.create({ doc });
@@ -146,5 +151,39 @@ describe("CM6 placement utils", () => {
 		].join("\n");
 
 		expect(containsMarkdownTable(stateFromDoc(doc))).toBe(false);
+	});
+});
+
+describe("mobile table-editing suppression", () => {
+	test("suppresses when the document contains a markdown table", () => {
+		const doc = [
+			"# Heading",
+			"",
+			"| a | b |",
+			"| --- | --- |",
+			"| c | d |",
+		].join("\n");
+
+		expect(shouldSuppressInfluxForTableEditing(stateWithSelection(doc, "# Heading"))).toBe(true);
+	});
+
+	test("suppresses when the caret is inside a markdown table", () => {
+		const doc = [
+			"| a | b |",
+			"| --- | --- |",
+			"| c | d |",
+		].join("\n");
+
+		expect(shouldSuppressInfluxForTableEditing(stateWithSelection(doc, "c"))).toBe(true);
+	});
+
+	test("does not suppress for plain notes without tables", () => {
+		const doc = [
+			"# Heading",
+			"",
+			"Just prose.",
+		].join("\n");
+
+		expect(shouldSuppressInfluxForTableEditing(stateWithSelection(doc, "prose"))).toBe(false);
 	});
 });

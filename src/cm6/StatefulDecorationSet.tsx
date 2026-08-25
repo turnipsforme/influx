@@ -6,7 +6,12 @@ import { influxDecoration } from "./InfluxWidget";
 import { statefulDecorations } from "./helpers";
 import { getBacklinkSourceSignature } from "../backlink-utils";
 import { getInfluxDecorationPlacement } from "./decoration-placement";
-import { containsMarkdownTable, findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
+import {
+	containsMarkdownTable,
+	findInfluxWidgetPosition,
+	isSelectionInMarkdownTable,
+	shouldSuppressInfluxForTableEditing,
+} from "./placement-utils";
 
 
 export class StatefulDecorationSet {
@@ -14,6 +19,7 @@ export class StatefulDecorationSet {
     decoCache: { [cls: string]: Decoration } = Object.create(null);
     private requestGeneration = 0;
     private backlinkSourceSignature = '';
+    private showingDecorations = false;
 
     constructor(editor: EditorView) {
         this.editor = editor;
@@ -23,7 +29,7 @@ export class StatefulDecorationSet {
         const editorField = state.field(editorViewField, false)
         if (!editorField) return null; // If not yet loaded.
 
-        if (containsMarkdownTable(state) || isSelectionInMarkdownTable(state)) {
+        if (shouldSuppressInfluxForTableEditing(state)) {
             return Decoration.none;
         }
 
@@ -131,6 +137,7 @@ export class StatefulDecorationSet {
             if (decorations) {
                 try {
                     this.editor.dispatch({ effects: statefulDecorations.update.of(decorations) });
+                    this.showingDecorations = decorations.size > 0;
                 } catch {
                     // Dispatch failed - editor is being destroyed, ignore
                 }
@@ -142,9 +149,29 @@ export class StatefulDecorationSet {
         if (decorations || hasExistingDecorations) {
             try {
                 this.editor.dispatch({ effects: statefulDecorations.update.of(decorations || Decoration.none) });
+                this.showingDecorations = Boolean(decorations && decorations.size > 0);
             } catch {
                 // Dispatch failed - editor is being destroyed, ignore
             }
+        }
+    }
+
+    /**
+     * Synchronously drop a visible influx widget without waiting for an async
+     * recomputation. Used on mobile while the user is editing inside a markdown
+     * table: deferring to the debounced path means the block widget can be
+     * inserted/removed mid-composition while the virtual keyboard is open, which
+     * forces a re-measure and glitches scroll position away from the caret.
+     */
+    hideIfShowing(): void {
+        if (!this.showingDecorations) {
+            return;
+        }
+        this.showingDecorations = false;
+        try {
+            this.editor.dispatch({ effects: statefulDecorations.update.of(Decoration.none) });
+        } catch {
+            // Dispatch failed - editor is being destroyed or mid-update, ignore
         }
     }
 

@@ -98,3 +98,15 @@ export function containsMarkdownTable(state: EditorState): boolean {
 	}
 	return false;
 }
+
+/**
+ * Whether Influx should be suppressed for this editor state. Documents that
+ * contain markdown tables, or where the caret sits inside one, are unstable
+ * ground for anchoring a block widget. On mobile this is especially true:
+ * IME/autocorrect composition produces rapid doc changes, and tap-to-move caret
+ * changes the selection without changing the document, so suppression must be
+ * checked cheaply and synchronously rather than only after doc-settle debounces.
+ */
+export function shouldSuppressInfluxForTableEditing(state: EditorState): boolean {
+	return containsMarkdownTable(state) || isSelectionInMarkdownTable(state);
+}
