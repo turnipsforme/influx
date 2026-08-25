@@ -13,6 +13,8 @@ import { createStyleSheet, StyleSheetType } from './createStyleSheet';
 import { getBacklinkSourceSignature } from './backlink-utils';
 
 // Extend global Window interface for test function
+import { shouldRenderInfluxForMarkdownElement } from './render-utils';
+
 declare global {
 	interface Window {
 		testInfluxReadingView?: () => void;
@@ -767,6 +769,10 @@ export default class ObsidianInflux extends Plugin {
 		if (this.isUnloading) {
 			return
 		}
+		if (!shouldRenderInfluxForMarkdownElement(element)) {
+			return;
+		}
+
 		// Only process if this is a markdown preview element
 		if (!element.classList.contains('markdown-preview-view')) {
 			return;
