@@ -1,15 +1,20 @@
-import { Decoration, WidgetType, EditorView } from "@codemirror/view";
+import { WidgetType, EditorView } from "@codemirror/view";
 import InfluxFile from '../InfluxFile';
 import InfluxReactComponent from '../InfluxReactComponent';
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
+import {
+    createInfluxBlockDecoration,
+    INFLUX_WIDGET_SIDE,
+} from "./decoration-placement";
 
 // Global WeakMap to track React roots for proper cleanup and reuse
 const reactRoots = new WeakMap<HTMLElement, Root>();
 
 // Use a unique custom element name to avoid conflicts with other plugins
 const INFLUX_ELEMENT_TAG = "obsidian-influx-element";
+const INFLUX_EDITOR_CLASS = "influx-editor-has-widget";
 
 try {
     customElements.define(INFLUX_ELEMENT_TAG, class extends HTMLElement {
@@ -54,8 +59,10 @@ export class InfluxWidget extends WidgetType {
 
     toDOM(view: EditorView) {
         const container = document.createElement(INFLUX_ELEMENT_TAG)
-        // Use unique ID based on file path to avoid conflicts
-        container.id = `influx-react-anchor-${this.influxFile.file?.path || 'unknown'}`;
+        view.dom.classList.add(INFLUX_EDITOR_CLASS)
+        container.style.display = 'block'
+        container.style.width = '100%'
+        container.id = `influx-react-anchor-${this.influxFile.uuid}`;
 
         // Get or create React root using WeakMap for proper cleanup
         // Use container directly as the React root anchor to ensure WeakMap key matches disconnect listener target
@@ -90,6 +97,10 @@ export class InfluxWidget extends WidgetType {
             }
             // Deregister the influx component
             this.unmount(this.influxFile);
+
+            if (!view.dom.querySelector(INFLUX_ELEMENT_TAG)) {
+                view.dom.classList.remove(INFLUX_EDITOR_CLASS)
+            }
         };
 
         container.addEventListener("disconnected", disconnectedHandler)
@@ -105,11 +116,7 @@ export class InfluxWidget extends WidgetType {
 
 
 export const influxDecoration = (influxWidgetSpec: InfluxWidgetSpec) =>  {
-    // Use provided side, or default to -1 (before position) for top placement
-    const side = influxWidgetSpec.side ?? -1;
-    return Decoration.widget({
-        widget: new InfluxWidget(influxWidgetSpec),
-        side: side,
-        block: true,
-    })
+    // Positive affinity keeps end-of-note typing before the footer widget.
+    const side = influxWidgetSpec.side ?? INFLUX_WIDGET_SIDE;
+    return createInfluxBlockDecoration(new InfluxWidget(influxWidgetSpec), side)
 }

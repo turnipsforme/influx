@@ -57,7 +57,7 @@ export interface NodeInternal {
     ordinal?: number;
     cols?: number;
     headerId?: string;
-    debug: any;
+    debug?: any;
 }
 
 export type InternalsIndex = { [key: NodeId]: NodeInternal }
@@ -100,18 +100,6 @@ export class StructuredText {
         const children: ChildrenIndex = {}
         const parents: ParentsIndex = {}
         const roots: RootsIndex = {}
-        const types: TypeIndex = {
-            [NodeType.ListUnordered]: [],
-            [NodeType.ListOrdered]: [],
-            [NodeType.CallOutHeader]: [],
-            [NodeType.Other]: [],
-            [NodeType.TableHeader]: [],
-            [NodeType.TableDivider]: [],
-            [NodeType.TableRow]: [],
-            [NodeType.Quote]: [],
-            [NodeType.Blank]: [],
-        }
-
         let stack: NodeId[] = []
         let mode: ModeType = ModeType.None
         let calloutLevel = 0
@@ -130,7 +118,6 @@ export class StructuredText {
             let stripped = ''
             let type: NodeType
             let indent = 0
-            const debug: any = {}
             let isQuotedBullet: boolean;
             let isFirstOfMode: boolean;
             let ordinal: number;
@@ -278,7 +265,6 @@ export class StructuredText {
                 stripped: stripped,
                 type: type,
                 mode: mode,
-                debug: debug,
                 calloutLevel,
                 isQuotedBullet,
                 isFirstOfMode,
@@ -286,8 +272,6 @@ export class StructuredText {
                 cols,
                 headerId,
             };
-
-            (types[type] ||= []).push(id);
 
             if (indent >= stack.length - 1) {
                 stack[indent] = id
@@ -323,11 +307,11 @@ export class StructuredText {
 
         this.descendants = {}
         this.ancestors = {}
+        const nodeIds = Object.keys(this.internals)
 
         // ### Ancestors iteration
 
-        for (let i = 0; i < Object.keys(this.internals).length; i++) {
-            const id = Object.keys(this.internals)[i]
+        for (const id of nodeIds) {
 
             const parentId = this.parents[id]
 
@@ -344,8 +328,7 @@ export class StructuredText {
 
         // ### Descendants iteration
 
-        for (let i = 0; i < Object.keys(this.internals).length; i++) {
-            const id = Object.keys(this.internals)[i]
+        for (const id of nodeIds) {
 
             this.descendants[id] = this.descendants[id] || []
             const ancestorsOfId = this.ancestors[id];
@@ -513,4 +496,3 @@ export class StructuredText {
     }
 
 }
-

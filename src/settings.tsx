@@ -1,5 +1,9 @@
 import ObsidianInflux from './main';
 import { App, PluginSettingTab, Setting } from "obsidian";
+import {
+    BACKLINK_CACHE_GITHUB_URL,
+    BACKLINK_CACHE_OBSIDIAN_URL,
+} from './backlink-cache';
 
 export class ObsidianInfluxSettingsTab extends PluginSettingTab {
 
@@ -38,6 +42,26 @@ export class ObsidianInfluxSettingsTab extends PluginSettingTab {
                     await this.saveSettings()
                 });
         })
+
+        const backlinkCacheActive = this.plugin.api.isBacklinkCacheActive();
+        const backlinkCacheFragment = document.createDocumentFragment();
+        backlinkCacheFragment.append(
+            backlinkCacheActive
+                ? 'Backlink Cache is active. Influx uses its safe cache automatically for fresh backlink updates. '
+                : 'Recommended for faster, fresher backlink updates, especially in large vaults. Influx uses it automatically when enabled. ',
+        );
+        const obsidianLink = document.createElement('a');
+        obsidianLink.href = BACKLINK_CACHE_OBSIDIAN_URL;
+        obsidianLink.text = 'Install in Obsidian';
+        backlinkCacheFragment.append(obsidianLink, ' · ');
+        const githubLink = document.createElement('a');
+        githubLink.href = BACKLINK_CACHE_GITHUB_URL;
+        githubLink.text = 'GitHub';
+        backlinkCacheFragment.append(githubLink);
+
+        new Setting(containerEl)
+            .setName('Backlink Cache integration')
+            .setDesc(backlinkCacheFragment)
 
 
         new Setting(containerEl)

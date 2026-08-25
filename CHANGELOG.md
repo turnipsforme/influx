@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0-beta.1] - 2026-08-21
+
+### Added
+
+- Optional Backlink Cache integration that uses its safe API automatically when active
+- Settings recommendation with Obsidian and GitHub links for Backlink Cache
+- Regression coverage for backlink additions, removals, lazy plugin detection, and bounded concurrency
+
+### Changed
+
+- Batched rapid metadata changes into one refresh pass
+- Applied list limits before reading and parsing backlink source notes
+- Limited source processing and Markdown rendering to eight concurrent jobs
+- Switched display reads to Obsidian's cached read path
+- Bounded settled backlink results to 32 target notes and limited concurrent scans to eight
+- Minified production bundles and selected React's production runtime
+
+### Fixed
+
+- Fixed stale backlink results that could require manually refreshing a note
+- Fixed async editor and React update races that could display an older result
+- Fixed quadratic allocations while indexing large structured notes
+- Released cached file references, source content, detached render elements, and closed preview state sooner
+
 ## [2.3.1] - 2025-01-30
 
 ### Added
