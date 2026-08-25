@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - 2026-08-25
+
+### Fixed
+
+- Extended the table-cell backlink fixes to mobile so editing a markdown table no longer glitches the influx UI: the widget is now dropped synchronously while editing inside a table instead of being inserted/removed by the debounced recomputation mid-composition with the virtual keyboard open
+- Mobile caret taps that move into or out of a table now keep widget suppression in sync, since selection changes on mobile do not produce document changes
+
 ## [2.4.0-beta.1] - 2026-08-21
 
 ### Added
