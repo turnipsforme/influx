@@ -6,6 +6,7 @@ import { influxDecoration } from "./InfluxWidget";
 import { statefulDecorations } from "./helpers";
 import { getBacklinkSourceSignature } from "../backlink-utils";
 import { getInfluxDecorationPlacement } from "./decoration-placement";
+import { containsMarkdownTable, findInfluxWidgetPosition, isSelectionInMarkdownTable } from "./placement-utils";
 
 
 export class StatefulDecorationSet {
@@ -21,6 +22,11 @@ export class StatefulDecorationSet {
     async computeAsyncDecorations(state: EditorState, show: boolean): Promise<DecorationSet | null> {
         const editorField = state.field(editorViewField, false)
         if (!editorField) return null; // If not yet loaded.
+
+        if (containsMarkdownTable(state) || isSelectionInMarkdownTable(state)) {
+            return Decoration.none;
+        }
+
 
         const { file } = editorField;
         if (!file) return null; // If no file is loaded
@@ -53,11 +59,16 @@ export class StatefulDecorationSet {
             state,
             influxFile.influx.data.settings.influxAtTopOfPage,
         )
+        // rudironsoni's fix: skip over a leading table/heading-table when anchoring
+        // at the top of the page so backlinks never land inside a table cell.
+        const position = influxFile.influx.data.settings.influxAtTopOfPage && hasVisibleEntries
+            ? Math.max(placement.position, findInfluxWidgetPosition(state))
+            : placement.position
         decorations.push(influxDecoration({
             influxFile,
-            show: true,
+            show: show && influxFile.show,
             side: placement.side,
-        }).range(placement.position))
+        }).range(position))
 
         return Decoration.set(decorations, true);
 
