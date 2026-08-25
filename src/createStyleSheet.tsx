@@ -1,7 +1,7 @@
 import jss, { StyleSheet } from 'jss'
 import preset from 'jss-preset-default'
-import { ObsidianInfluxSettings } from "./main";
-import { ApiAdapter } from './apiAdapter';
+import type { ObsidianInfluxSettings } from "./main";
+import type { ApiAdapter } from './apiAdapter';
 
 interface StyleProps {
     theme: string;
@@ -49,6 +49,16 @@ export function createStyleSheet(api: ApiAdapter, preview=false) {
                     marginTop: `3em`, //--line-height-normal is 1.5
                     // animation: 'fadeIn .6s',
 
+                    // Obsidian's generic backlink UI expands these wrappers to
+                    // fill a flex parent. Influx is document content, so it must
+                    // instead stay sized to the rendered backlink list.
+                    '& .backlink-pane': {
+                        flex: '0 0 auto',
+                    },
+                    '& .search-result-container': {
+                        flex: '0 0 auto',
+                    },
+
                 },
 
                 inlinkedEntries: {
@@ -56,7 +66,6 @@ export function createStyleSheet(api: ApiAdapter, preview=false) {
                     lineHeight: `${props.lineHeight}px`,
                     width: 'var(--file-line-width, 100%)',
                     maxWidth: '100%',
-                    flexGrow: 1,
                     display: 'flex',
                     flexDirection: 'column',
                     paddingLeft: '1rem',
@@ -186,7 +195,6 @@ export function createStyleSheet(api: ApiAdapter, preview=false) {
     return sheet
 
 }
-
 
 
 
