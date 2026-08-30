@@ -145,6 +145,11 @@ export class ApiAdapter {
     }
 
     private cacheBacklinks(path: string, backlinks: BacklinksObject): void {
+        // Retry empty results on the next request. They can be returned while
+        // Obsidian or an optional backlink provider is still starting up.
+        if (getBacklinkSourcePaths(backlinks).length === 0) {
+            return;
+        }
         this.backlinksCache.set(path, backlinks);
         if (this.backlinksCache.size > MAX_BACKLINK_CACHE_ENTRIES) {
             const oldestPath = this.backlinksCache.keys().next().value;
@@ -155,9 +160,11 @@ export class ApiAdapter {
     }
 
     private async loadBacklinks(file: TFile): Promise<BacklinksObject> {
+        const settings = this.getSettings();
         const rawBacklinks = await getFreshBacklinks(
             this.app.metadataCache as BacklinkMetadataCache,
             file,
+            settings.useBacklinkCache,
         );
         // Frontmatter processing adds entries, so clone the native cache instead
         // of mutating Obsidian's shared metadata object.
@@ -167,7 +174,6 @@ export class ApiAdapter {
         
         // Process front matter links using the pure function pipeline
         if (metadata?.frontmatterLinks) {
-            const settings = this.getSettings();
             processFrontmatterLinks(backlinks, metadata.frontmatterLinks, settings);
         }
 

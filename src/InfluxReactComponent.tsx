@@ -95,8 +95,9 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 	const settings: Partial<ObsidianInfluxSettings> = influxFile.api.getSettings()
 
 	const centered = settings.variant !== 'ROWS'
+	const showEmptyState = Boolean(settings.showWithoutBacklinks && shownLength === 0)
 
-	if (!influxFile.show || shownLength === 0) {
+	if (!influxFile.show || (shownLength === 0 && !showEmptyState)) {
 		return null
 	}
 	
@@ -108,7 +109,8 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 		}}
 		> 
 
-			<div className="nav-header">
+			{shownLength > 0 && (
+				<div className="nav-header">
 
 				<div className="nav-buttons-container">
 					{/* <div className="clickable-icon nav-action-button" aria-label="Collapse results">
@@ -165,9 +167,10 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 							</line>
 						</svg>
 					</div> */}
-				</div>
+					</div>
 
-			</div>
+				</div>
+			)}
 
 
 			<div className="search-input-container" style={{ display: "none" }}>
@@ -183,9 +186,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 				<div
 					onClick={() => toggleAll()}
-					className={`tree-item-self is-clickable 
-					${'' //	isOpen ? '' : 'is-collapsed'
-						}`}
+					className="tree-item-self is-clickable"
 				// aria-label={isOpen ? "Click to collapse" : "Click to expand"}
 				>
 
@@ -208,6 +209,10 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 
 					<div className="search-results-children" >
+
+						{showEmptyState && (
+							<div className="search-empty-state">No linked mentions found.</div>
+						)}
 
 						{components.map((extended: ExtendedInlinkingFile) => {
 

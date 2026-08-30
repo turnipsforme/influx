@@ -32,8 +32,8 @@ export class ObsidianInfluxSettingsTab extends PluginSettingTab {
 
 
         new Setting(containerEl)
-        .setName("Live update")
-        .setDesc("With live update enabled, changes in a note is immediately reflected in Infux components where that note appears. (This can reduce overall performance.)")
+        .setName("Refresh open Influx sections")
+        .setDesc("Refresh Influx sections that are already open when linked notes change. Turning this off does not stop Influx from loading when you open a note. This is separate from Backlink Cache.")
         .addToggle(toggle => {
             toggle
                 .setValue(this.plugin.data.settings.liveUpdate)
@@ -47,8 +47,8 @@ export class ObsidianInfluxSettingsTab extends PluginSettingTab {
         const backlinkCacheFragment = document.createDocumentFragment();
         backlinkCacheFragment.append(
             backlinkCacheActive
-                ? 'Backlink Cache is active. Influx uses its safe cache automatically for fresh backlink updates. '
-                : 'Recommended for faster, fresher backlink updates, especially in large vaults. Influx uses it automatically when enabled. ',
+                ? 'Backlink Cache is active. When enabled here, Influx uses it with Obsidian as a fallback if the cache is empty. Turn it off to always use Obsidian’s native backlinks. '
+                : 'Backlink Cache is not active, so Influx will use Obsidian’s native backlinks. ',
         );
         const obsidianLink = document.createElement('a');
         obsidianLink.href = BACKLINK_CACHE_OBSIDIAN_URL;
@@ -60,8 +60,28 @@ export class ObsidianInfluxSettingsTab extends PluginSettingTab {
         backlinkCacheFragment.append(githubLink);
 
         new Setting(containerEl)
-            .setName('Backlink Cache integration')
+            .setName('Use Backlink Cache in Influx')
             .setDesc(backlinkCacheFragment)
+            .addToggle(toggle => {
+                toggle
+                    .setValue(this.plugin.data.settings.useBacklinkCache)
+                    .onChange(async (value) => {
+                        this.plugin.data.settings.useBacklinkCache = value;
+                        await this.saveSettings()
+                    });
+            })
+
+        new Setting(containerEl)
+            .setName('Show Influx with no linked mentions')
+            .setDesc('Keep the Influx section visible with a “No linked mentions found” message when there are no results.')
+            .addToggle(toggle => {
+                toggle
+                    .setValue(this.plugin.data.settings.showWithoutBacklinks)
+                    .onChange(async (value) => {
+                        this.plugin.data.settings.showWithoutBacklinks = value;
+                        await this.saveSettings()
+                    });
+            })
 
 
         new Setting(containerEl)

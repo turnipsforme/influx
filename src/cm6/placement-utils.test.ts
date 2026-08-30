@@ -155,7 +155,7 @@ describe("CM6 placement utils", () => {
 });
 
 describe("mobile table-editing suppression", () => {
-	test("suppresses when the document contains a markdown table", () => {
+	test("does not suppress when a table exists away from the caret", () => {
 		const doc = [
 			"# Heading",
 			"",
@@ -164,7 +164,7 @@ describe("mobile table-editing suppression", () => {
 			"| c | d |",
 		].join("\n");
 
-		expect(shouldSuppressInfluxForTableEditing(stateWithSelection(doc, "# Heading"))).toBe(true);
+		expect(shouldSuppressInfluxForTableEditing(stateWithSelection(doc, "# Heading"))).toBe(false);
 	});
 
 	test("suppresses when the caret is inside a markdown table", () => {
@@ -185,5 +185,23 @@ describe("mobile table-editing suppression", () => {
 		].join("\n");
 
 		expect(shouldSuppressInfluxForTableEditing(stateWithSelection(doc, "prose"))).toBe(false);
+	});
+
+	test("does not treat an escaped pipe in a link label as a table", () => {
+		const doc = [
+			"# Mac apps",
+			"",
+			"- [Title Unavailable \\| Site Unreachable](https://example.com)",
+		].join("\n");
+
+		expect(containsMarkdownTable(stateFromDoc(doc))).toBe(false);
+		expect(shouldSuppressInfluxForTableEditing(stateWithSelection(doc, "Unavailable"))).toBe(false);
+	});
+
+	test("does not treat an Obsidian image size pipe as a table", () => {
+		const doc = "![Screenshot|513](image.png)";
+
+		expect(containsMarkdownTable(stateFromDoc(doc))).toBe(false);
+		expect(shouldSuppressInfluxForTableEditing(stateFromDoc(doc))).toBe(false);
 	});
 });

@@ -1,4 +1,4 @@
-import { editorViewField } from "obsidian";
+import { editorViewField, Platform } from "obsidian";
 import { EditorView, Decoration, DecorationSet } from "@codemirror/view";
 import { EditorState, Range } from "@codemirror/state";
 import InfluxFile from '../InfluxFile';
@@ -7,9 +7,7 @@ import { statefulDecorations } from "./helpers";
 import { getBacklinkSourceSignature } from "../backlink-utils";
 import { getInfluxDecorationPlacement } from "./decoration-placement";
 import {
-	containsMarkdownTable,
 	findInfluxWidgetPosition,
-	isSelectionInMarkdownTable,
 	shouldSuppressInfluxForTableEditing,
 } from "./placement-utils";
 
@@ -29,7 +27,9 @@ export class StatefulDecorationSet {
         const editorField = state.field(editorViewField, false)
         if (!editorField) return null; // If not yet loaded.
 
-        if (shouldSuppressInfluxForTableEditing(state)) {
+        // Desktop editors can safely render beside tables. Mobile temporarily
+        // hides the block only while the caret is inside an actual table.
+        if (Platform.isMobile && shouldSuppressInfluxForTableEditing(state)) {
             return Decoration.none;
         }
 
@@ -49,9 +49,9 @@ export class StatefulDecorationSet {
 
         const influxFile = await InfluxFile.create(file.path, apiAdapter, plugin)
 
-        // Do not install even an empty block widget. It still participates in
-        // CodeMirror layout and can interfere with typing at the document edge.
-        if (!show || !influxFile.show || !influxFile.hasBacklinks()) {
+        // Avoid a block widget unless there are results or the user explicitly
+        // enabled the empty Influx section.
+        if (!show || !influxFile.show) {
             return Decoration.none
         }
 

@@ -16,6 +16,21 @@ export type BacklinkMetadataCache = {
     getBacklinksForFile?: GetBacklinksForFile;
 };
 
+function hasBacklinkEntries(backlinks: RawBacklinksObject | null | undefined): boolean {
+    const data = backlinks?.data;
+    if (!data) {
+        return false;
+    }
+
+    const linkGroups = data instanceof Map ? data.values() : Object.values(data);
+    for (const links of linkGroups) {
+        if (Array.isArray(links) && links.length > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
  * Feature-detect Backlink Cache's documented runtime patch.
  * This is intentionally checked on demand so plugin load order does not matter.
@@ -27,12 +42,14 @@ export function isBacklinkCacheActive(metadataCache: BacklinkMetadataCache): boo
 }
 
 /**
- * Use Backlink Cache's safe path when available, otherwise use Obsidian's
- * native synchronous implementation. No timers or polling are involved.
+ * Use Backlink Cache only when requested. When its safe result is empty or
+ * fails, check Obsidian's unpatched implementation so an incomplete optional
+ * cache cannot hide real linked mentions.
  */
 export async function getFreshBacklinks(
     metadataCache: BacklinkMetadataCache,
     file: TFile,
+    useBacklinkCache: boolean,
 ): Promise<RawBacklinksObject> {
     const getBacklinksForFile = metadataCache.getBacklinksForFile;
     if (typeof getBacklinksForFile !== 'function') {
@@ -40,7 +57,22 @@ export async function getFreshBacklinks(
     }
 
     if (isBacklinkCacheActive(metadataCache)) {
-        return await getBacklinksForFile.safe!(file);
+        const getNativeBacklinks = () => getBacklinksForFile.originalFn!(file);
+        if (!useBacklinkCache) {
+            return getNativeBacklinks();
+        }
+
+        try {
+            const cachedBacklinks = await getBacklinksForFile.safe!(file);
+            if (hasBacklinkEntries(cachedBacklinks)) {
+                return cachedBacklinks;
+            }
+
+            const nativeBacklinks = getNativeBacklinks();
+            return hasBacklinkEntries(nativeBacklinks) ? nativeBacklinks : cachedBacklinks;
+        } catch {
+            return getNativeBacklinks();
+        }
     }
 
     return getBacklinksForFile.call(metadataCache, file);

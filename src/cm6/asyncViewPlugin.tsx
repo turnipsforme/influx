@@ -48,6 +48,8 @@ class InfluxEditorViewPlugin {
             // suppression in sync with the caret position as it moves.
             if (shouldSuppressInfluxForTableEditing(update.view.state)) {
                 this.hideWidgetSoon();
+            } else {
+                this.debouncedShow(update.view);
             }
         }
     }

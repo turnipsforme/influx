@@ -17,6 +17,7 @@ function createApi(backlinkData: Map<string, LinkCache[]> | Record<string, LinkC
         getMetadata: jest.fn(),
         getShowStatus: jest.fn(() => true),
         getCollapsedStatus: jest.fn(() => false),
+        getSettings: jest.fn(() => ({ listLimit: 0, showWithoutBacklinks: false })),
         isIncludableSource: jest.fn(() => true),
         renderAllMarkdownBlocks: jest.fn(),
     } as unknown as ApiAdapter;
@@ -32,7 +33,7 @@ describe('InfluxFile processing guard', () => {
         {},
         new Map<string, LinkCache[]>([['Source.md', []]]),
         { 'Source.md': [] },
-    ])('does no metadata, filter, or rendering work without backlinks', async (data) => {
+    ])('does no excerpt or rendering work without backlinks', async (data) => {
         const { api } = createApi(data);
         const influxFile = await InfluxFile.create(
             'Target.md',
@@ -45,10 +46,29 @@ describe('InfluxFile processing guard', () => {
         await expect(influxFile.prepare()).resolves.toBe(false);
 
         expect(api.getMetadata).not.toHaveBeenCalled();
-        expect(api.getShowStatus).not.toHaveBeenCalled();
+        expect(api.getShowStatus).toHaveBeenCalledWith(expect.objectContaining({ path: 'Target.md' }));
         expect(api.getCollapsedStatus).not.toHaveBeenCalled();
         expect(makeInfluxList).not.toHaveBeenCalled();
         expect(renderAllMarkdownBlocks).not.toHaveBeenCalled();
+        expect(api.renderAllMarkdownBlocks).not.toHaveBeenCalled();
+    });
+
+    test('keeps the section visible without doing excerpt work when the empty state is enabled', async () => {
+        const { api } = createApi(new Map());
+        (api.getSettings as jest.Mock).mockReturnValue({
+            listLimit: 0,
+            showWithoutBacklinks: true,
+        });
+        const influxFile = await InfluxFile.create(
+            'Target.md',
+            api,
+            {} as ObsidianInflux,
+        );
+        const makeInfluxList = jest.spyOn(influxFile, 'makeInfluxList');
+
+        await expect(influxFile.prepare()).resolves.toBe(true);
+        expect(influxFile.show).toBe(true);
+        expect(makeInfluxList).not.toHaveBeenCalled();
         expect(api.renderAllMarkdownBlocks).not.toHaveBeenCalled();
     });
 

@@ -35,6 +35,8 @@ type InfluxWorkspaceLeaf = WorkspaceLeaf & {
 
 export interface ObsidianInfluxSettings {
 	liveUpdate: boolean;
+	useBacklinkCache: boolean;
+	showWithoutBacklinks: boolean;
 	sortingPrinciple: 'NEWEST_FIRST' | 'OLDEST_FIRST';
 	sortingAttribute: 'ctime' | 'mtime' | 'FILENAME'; // created or modified.
 	showBehaviour: 'OPT_OUT' | 'OPT_IN';
@@ -55,6 +57,8 @@ export interface ObsidianInfluxSettings {
 
 export const DEFAULT_SETTINGS: Partial<ObsidianInfluxSettings> = {
 	liveUpdate: true,
+	useBacklinkCache: false,
+	showWithoutBacklinks: false,
 	sortingPrinciple: 'NEWEST_FIRST',
 	sortingAttribute: 'ctime',
 	showBehaviour: 'OPT_OUT',
@@ -196,7 +200,12 @@ export default class ObsidianInflux extends Plugin {
 			}
 			this.triggerUpdates('delete', file);
 		}));
-		this.registerEvent(this.app.workspace.on('file-open', (file: TAbstractFile) => { this.triggerUpdates('file-open', file) }));
+		this.registerEvent(this.app.workspace.on('file-open', (file: TAbstractFile) => {
+			// A file can open while Obsidian or an optional cache is still settling.
+			// Give it a fresh read instead of reusing an earlier backlink result.
+			this.api.invalidateBacklinksCache()
+			this.triggerUpdates('file-open', file)
+		}));
 		this.registerEvent(this.app.workspace.on('layout-change', () => {
 			this.cleanupReactRoots();
 			this.triggerUpdates('layout-change');

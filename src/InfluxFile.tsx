@@ -73,18 +73,23 @@ export default class InfluxFile {
             await this.refreshBacklinks()
         }
 
-        if (!this.file || !this.show || !this.hasBacklinks()) {
+        if (!this.file || !this.show) {
             this.inlinkingFiles = []
             return false
         }
 
+        if (!this.hasBacklinks()) {
+            this.inlinkingFiles = []
+            return this.api.getSettings().showWithoutBacklinks
+        }
+
         await this.makeInfluxList()
         if (this.inlinkingFiles.length === 0) {
-            return false
+            return this.api.getSettings().showWithoutBacklinks
         }
 
         await this.renderAllMarkdownBlocks()
-        return this.components.length > 0
+        return this.components.length > 0 || this.api.getSettings().showWithoutBacklinks
     }
 
     // is the file that triggers update part of the current files inlinked files?
@@ -112,14 +117,16 @@ export default class InfluxFile {
 
         this.backlinks = await this.api.getBacklinks(this.file)
 
+        // Target-note filters still decide whether the section belongs on the
+        // page when the optional empty state is enabled.
+        this.show = this.api.getShowStatus(this.file)
+
         // Backlink-free notes do not need metadata, filter, excerpt, or Markdown work.
         if (!this.hasBacklinks()) {
-            this.show = false
             this.collapsed = false
             return
         }
 
-        this.show = this.api.getShowStatus(this.file)
         this.collapsed = this.api.getCollapsedStatus(this.file)
     }
 
