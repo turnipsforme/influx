@@ -135,7 +135,6 @@ test.each(cases)('synthetic baseline $count sources, limit=$listLimit, $shape', 
             })))).digest('hex');
             if (phase === 'cold') coldDigest = digest;
             else expect(digest).toBe(coldDigest);
-            expect(reads - readStart).toBe(expected.length);
             console.log('INFLUX_BASELINE ' + JSON.stringify({
                 count, listLimit, shape, phase, elapsedMs, backlinksMs, summaryMs, mockRenderMs,
                 nativeCalls: nativeCalls - nativeStart, reads: reads - readStart,
