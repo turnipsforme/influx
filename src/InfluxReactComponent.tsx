@@ -50,6 +50,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 		setStyleSheet(sheet)
 		const pendingFiles = new Map<string, TFile>()
 		let needsFullRefresh = false
+		let needsRelevantRefresh = false
 
 		const respondToUpdateTrigger = (op: string, stylesheet: StyleSheetType, files?: readonly TFile[]): Promise<void> => {
 			if (op === 'modify' && files) {
@@ -65,7 +66,10 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 				let backlinksRefreshed = false
 				if (!needsFullRefresh) {
-					if (!await influxFile.shouldUpdate([...pendingFiles.values()])) {
+					const relevant = await influxFile.shouldUpdate([...pendingFiles.values()])
+					// A superseded refresh can already have replaced the previous backlink snapshot.
+					needsRelevantRefresh ||= relevant
+					if (!needsRelevantRefresh) {
 						if (generation === updateGeneration.current) pendingFiles.clear()
 						return
 					}
@@ -85,6 +89,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 				setComponents([...influxFile.components])
 				pendingFiles.clear()
 				needsFullRefresh = false
+				needsRelevantRefresh = false
 			}
 
 			const queued = updateQueue.current.then(runUpdate, runUpdate)
