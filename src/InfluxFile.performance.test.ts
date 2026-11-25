@@ -22,11 +22,11 @@ jest.mock('./main', () => ({
     default: class MockInfluxPlugin {},
     DEFAULT_SETTINGS: {
         showBehaviour: 'OPT_OUT', sourceBehaviour: 'OPT_OUT',
-        inclusionPattern: [], exclusionPattern: [], collapsedPattern: [],
-        sourceInclusionPattern: [], sourceExclusionPattern: [],
+        inclusionPattern: [] as string[], exclusionPattern: [] as string[], collapsedPattern: [] as string[],
+        sourceInclusionPattern: [] as string[], sourceExclusionPattern: [] as string[],
         sortingAttribute: 'FILENAME', sortingPrinciple: 'OLDEST_FIRST',
         useBacklinkCache: false, includeFrontmatterLinks: false,
-        frontmatterProperties: [], showWithoutBacklinks: false,
+        frontmatterProperties: [] as string[], showWithoutBacklinks: false,
     },
 }));
 jest.mock('uuid', () => ({ v4: () => 'benchmark-uuid' }));
