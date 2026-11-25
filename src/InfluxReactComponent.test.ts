@@ -229,6 +229,36 @@ test('keeps changes that arrive while a refresh is awaiting backlinks', async ()
     expect(prepare).toHaveBeenCalledTimes(1);
 });
 
+test.each(['map', 'object'])('clears the final backlink when its refresh is superseded (%s)', async shape => {
+    const { api, file, source, callbacks, native, safe } = await fixture(true, true, shape);
+    await mount(file);
+    expect(container.querySelector('.entry')).not.toBeNull();
+
+    const empty = { data: shape === 'map' ? new Map() : {} };
+    native.mockReturnValue(empty);
+    safe.mockResolvedValue(empty);
+    let started!: () => void;
+    let release!: (value: typeof empty) => void;
+    const loading = new Promise<void>(resolve => { started = resolve; });
+    safe.mockImplementationOnce(() => new Promise(resolve => {
+        release = resolve;
+        started();
+    }));
+    api.invalidateBacklinksCache();
+    const callback = callbacks.get(file.uuid);
+
+    await React.act(async () => {
+        const first = callback('modify', sheet, [source]);
+        await loading;
+        const second = callback('modify', sheet, [{ path: 'Unrelated.md' }]);
+        release(empty);
+        await Promise.all([first, second]);
+    });
+
+    expect(file.components).toEqual([]);
+    expect(container.querySelector('.entry')).toBeNull();
+});
+
 test('keeps relative link context through nested embedded previews', async () => {
     const { api, file, app, openLinkText } = await fixture();
     app.metadataCache.getFirstLinkpathDest = jest.fn((link: string, source: string) => ({
