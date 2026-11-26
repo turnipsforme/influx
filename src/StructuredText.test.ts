@@ -288,3 +288,18 @@ describe('StructuredText Parsing Tests', () => {
   });
 
 });
+
+test('preserves source order when line IDs cross the integer-key boundary', () => {
+  const lines = Array.from({ length: 1002 }, (_, i) => 'Line ' + i);
+  const struct = new StructuredText(lines.join('\n'));
+  expect(struct.stringify()).toBe(lines.join('\n') + '\n');
+  expect(struct.stringifyBranchesOfNodesWithLinks([998, 1001]).trim()).toBe('Line 998\nLine 1001');
+});
+
+test('preserves nested ancestry and descendants across line 1000', () => {
+  const lines = [...Array.from({ length: 998 }, () => 'Context'), '- Grandparent', '  - Parent', '    - [[Target]]', '      - Child'];
+  const struct = new StructuredText(lines.join('\n'));
+  expect(struct.ancestors['1000']).toEqual(['0999', '0998']);
+  expect(struct.descendants['0998']).toEqual(['0999', '1000', '1001']);
+  expect(struct.stringifyBranchesOfNodesWithLinks([1000]).trim()).toBe('* Grandparent\n  * Parent\n    * [[Target]]\n      * Child');
+});
