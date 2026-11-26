@@ -229,3 +229,16 @@ describe('InfluxFile processing guard', () => {
         expect(influxFile.inlinkingFiles.map(file => file.file.path)).toEqual(['B.md', 'C.md']);
     });
 });
+
+test.each(['map', 'object'])('checks added, removed and unrelated paths in a 5,000-source graph (%s)', async shape => {
+    const entries: [string, LinkCache[]][] = Array.from({ length: 5000 }, (_, i) => ['Source-' + i + '.md', [link]]);
+    const current: [string, LinkCache[]][] = [...entries.slice(1), ['Added.md', [link]]];
+    const toData = (items: [string, LinkCache[]][]) => shape === 'map' ? new Map(items) : Object.fromEntries(items);
+    const { api } = createApi(toData(entries));
+    const influxFile = await InfluxFile.create('Target.md', api, {} as ObsidianInflux);
+    (api.getBacklinks as jest.Mock).mockResolvedValue({ data: toData(current) });
+
+    await expect(influxFile.shouldUpdate([{ path: 'Unrelated.md' } as TFile, { path: 'Source-0.md' } as TFile])).resolves.toBe(true);
+    await expect(influxFile.shouldUpdate({ path: 'Added.md' } as TFile)).resolves.toBe(true);
+    await expect(influxFile.shouldUpdate({ path: 'Unrelated.md' } as TFile)).resolves.toBe(false);
+});
