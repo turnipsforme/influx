@@ -70,6 +70,17 @@ export type RootsIndex = { [key: NodeId]: any }
 
 export type TypeIndex = { [key in NodeType]: NodeId[] }
 
+// Integer-like keys (1000 and above) enumerate before zero-padded keys.
+// Both groups already have source order; rotate the padded group to the front.
+function orderedNodeIds(index: InternalsIndex | RootsIndex): NodeId[] {
+    const ids = Object.keys(index);
+    if (ids.length && ids[0][0] !== '0' && ids[ids.length - 1][0] === '0') {
+        const firstPadded = ids.findIndex(id => id[0] === '0');
+        return ids.slice(firstPadded).concat(ids.slice(0, firstPadded));
+    }
+    return ids;
+}
+
 
 export class StructuredText {
 
@@ -308,7 +319,7 @@ export class StructuredText {
 
         this.descendants = {}
         this.ancestors = {}
-        const nodeIds = Object.keys(this.internals)
+        const nodeIds = orderedNodeIds(this.internals)
 
         // ### Ancestors iteration
 
@@ -469,7 +480,7 @@ export class StructuredText {
 
         }
 
-        Object.keys(this.roots).forEach(id => {
+        orderedNodeIds(this.roots).forEach(id => {
             depthFirstStringify(id, 0)
         })
 
