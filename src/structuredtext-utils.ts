@@ -66,7 +66,7 @@ export function parseMarkdownTableRow(row: string): { cols: number; isDivider: b
  * Extracted from StructuredText.parseText()
  */
 export function isProperBullet(trimmed: string): boolean {
-    return [DASH_SIGN, BULLET_SIGN, '+ '].includes(trimmed.substring(0, 2));
+    return trimmed[1] === ' ' && (trimmed[0] === '-' || trimmed[0] === '*' || trimmed[0] === '+');
 }
 
 /**
