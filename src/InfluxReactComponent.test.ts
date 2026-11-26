@@ -422,3 +422,23 @@ test.each(['Enter', ' '])('the heading and card arrow support the %s key', async
         expect(element.getAttribute('aria-expanded')).toBe('false');
     }
 });
+
+test('collapse and expand all retain independent card state on a large list', async () => {
+    const { file } = await fixture();
+    const original = file.components[0];
+    file.components = Array.from({ length: 100 }, (_, i) => ({
+        ...original,
+        inlinkingFile: Object.assign(Object.create(Object.getPrototypeOf(original.inlinkingFile)), original.inlinkingFile, {
+            file: { ...original.inlinkingFile.file, path: 'Source-' + i + '.md' },
+        }),
+    }));
+    await mount(file);
+    await click('[aria-label="Collapse all"]');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(100);
+    await click('.search-result .collapse-icon');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(99);
+    await click('[aria-label="Collapse all"]');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(100);
+    await click('[aria-label="Expand all"]');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(0);
+});
