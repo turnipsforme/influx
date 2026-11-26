@@ -9,8 +9,6 @@ import {
 } from './structuredtext-utils';
 
 const FRONTMATTER_SIGN = '---'
-const BULLET_SIGN = '* '
-const DASH_SIGN = '- '
 const QUOTE_SIGN = '>'
 const CALLOUT_HEADER_SIGN = '[!'
 const OUTPUT_INDENT_SPACES = 2

@@ -8,8 +8,6 @@ import { NodeType } from './StructuredText';
 // Constants
 export const ORDERED_LISTITEM_REGEX = /^(\d+)[.)] /m;
 export const TABLE_ROW_REGEX = /^\|(.+)\|(.*)\|/gm;
-export const DASH_SIGN = '- ';
-export const BULLET_SIGN = '* ';
 
 /**
  * Finds the last non-empty element in a stack with optional offset

@@ -32,10 +32,6 @@ jobs:
         env:
           BASELINE_REF: ${{ github.event.pull_request.base.sha }}
         run: node scripts/benchmark-structuredtext.cjs "$BASELINE_REF"
-      - name: Incremental parser benchmark (round 3)
-        if: github.event_name == 'pull_request' && github.head_ref == 'aae/influx-performance'
-        # Previous measured PR head, including the long-note ordering fix.
-        run: node scripts/benchmark-structuredtext.cjs 520f71e10e3bf454c5ccbe8ab9cf7ec7ddbdd857 --extended
 
   build:
     runs-on: ubuntu-latest
