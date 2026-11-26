@@ -95,16 +95,15 @@ export default class InfluxFile {
     // is the file that triggers update part of the current files inlinked files?
     async shouldUpdate(files: TFile | readonly TFile[]): Promise<boolean> {
         const changedFiles = Array.isArray(files) ? files : [files]
-        const previousPaths = new Set(getBacklinkSourcePaths(this.backlinks))
+        const previousPaths = getBacklinkSourcePaths(this.backlinks)
         await this.refreshBacklinks()
-        const currentPaths = new Set(getBacklinkSourcePaths(this.backlinks))
+        const changedPaths = new Set(changedFiles.map(file => file.path))
 
-        // Include the old set so removing the final link still clears the UI.
-        return changedFiles.some(file =>
-            file.path === this.file?.path
-            || previousPaths.has(file.path)
-            || currentPaths.has(file.path),
-        )
+        // Index the changed batch, not the usually much larger backlink lists.
+        // Include previous paths so removing the final link still clears the UI.
+        return changedPaths.has(this.file?.path)
+            || previousPaths.some(path => changedPaths.has(path))
+            || getBacklinkSourcePaths(this.backlinks).some(path => changedPaths.has(path))
     }
 
     private async refreshBacklinks(): Promise<void> {
