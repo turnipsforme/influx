@@ -97,13 +97,25 @@ export default class InfluxFile {
         const changedFiles = Array.isArray(files) ? files : [files]
         const previousPaths = getBacklinkSourcePaths(this.backlinks)
         await this.refreshBacklinks()
-        const changedPaths = new Set(changedFiles.map(file => file.path))
+        const currentPaths = getBacklinkSourcePaths(this.backlinks)
+        const targetPath = this.file?.path
 
-        // Index the changed batch, not the usually much larger backlink lists.
         // Include previous paths so removing the final link still clears the UI.
-        return changedPaths.has(this.file?.path)
+        if (changedFiles.length === 1) {
+            const path = changedFiles[0].path
+            return path === targetPath || previousPaths.includes(path) || currentPaths.includes(path)
+        }
+
+        // Index the smaller side of the membership test, including large import batches.
+        if (changedFiles.length > previousPaths.length + currentPaths.length) {
+            const relatedPaths = new Set(previousPaths)
+            for (const path of currentPaths) relatedPaths.add(path)
+            return changedFiles.some(file => file.path === targetPath || relatedPaths.has(file.path))
+        }
+        const changedPaths = new Set(changedFiles.map(file => file.path))
+        return changedPaths.has(targetPath)
             || previousPaths.some(path => changedPaths.has(path))
-            || getBacklinkSourcePaths(this.backlinks).some(path => changedPaths.has(path))
+            || currentPaths.some(path => changedPaths.has(path))
     }
 
     private async refreshBacklinks(): Promise<void> {
