@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
@@ -25,6 +27,11 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npm test -- --runInBand
+      - name: Paired excerpt parser benchmark
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'aae/')
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/benchmark-structuredtext.cjs "$BASELINE_REF"
 
   build:
     runs-on: ubuntu-latest
