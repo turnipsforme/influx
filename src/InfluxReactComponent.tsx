@@ -18,26 +18,25 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 	const [components, setComponents] = React.useState(influxFile.components)
 	const [stylesheet, setStyleSheet] = React.useState(sheet)
-	const [collapsed, setCollapsed]: [string[], React.Dispatch<React.SetStateAction<string[]>>] = React.useState(influxFile.collapsed ? components.map(component => component.inlinkingFile.file.basename) : [])
+	const [collapsed, setCollapsed] = React.useState(() => new Set(influxFile.collapsed ? components.map(component => component.inlinkingFile.file.basename) : []))
 	const [toggleAllToOpen, setToggleAllToOpen] = React.useState(influxFile.collapsed)
 
 	const doToggle = (basename: string) => {
-		if (collapsed.includes(basename)) {
-			setCollapsed(collapsed.filter(name => name !== basename))
-		}
-		else {
-			setCollapsed([...collapsed, basename])
-		}
+		setCollapsed(paths => {
+			const next = new Set(paths)
+			if (!next.delete(basename)) next.add(basename)
+			return next
+		})
 	}
 
 	const toggleAll = () => {
 		const all = components.map(component => component.inlinkingFile.file.basename)
 		if (toggleAllToOpen) {
-			setCollapsed([])
+			setCollapsed(new Set())
 			setToggleAllToOpen(false)
 		}
 		else {
-			setCollapsed(all)
+			setCollapsed(new Set(all))
 			setToggleAllToOpen(true)
 		}
 	}
@@ -187,7 +186,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 						{components.map((extended: ExtendedInlinkingFile) => {
 
-							const inlinkedCollapsed = collapsed.includes(extended.inlinkingFile.file.basename)
+							const inlinkedCollapsed = collapsed.has(extended.inlinkingFile.file.basename)
 
 							const entryHeader = settings.entryHeaderVisible && extended.titleInnerHTML && !extended.inlinkingFile.isLinkInTitle ? (
 								<h2>

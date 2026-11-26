@@ -167,8 +167,8 @@ export class ApiAdapter extends Component {
         return shouldCollapseInfluxWithMatcher(file.path, settings as FilterSettings, this.patternMatchingFn);
     }
     patternMatchingFn = (path: string, _patterns: string[]): boolean => {
-        const patterns = _patterns.filter((_path: string) => _path.length > 0)
         const pathMatchesRegex = (pattern: string): boolean => {
+            if (!(pattern.length > 0)) return false;
             try {
                 // Use cached regex if available, otherwise compile and cache it
                 let regex = this.regexCache.get(pattern);
@@ -188,8 +188,7 @@ export class ApiAdapter extends Component {
                 return false;
             }
         };
-        const matched = patterns.some(pathMatchesRegex);
-        return matched
+        return _patterns.some(pathMatchesRegex)
     };
     /** A sort function to order notes correctly, based on settings. */
     makeComparisonFn(): (a: InlinkingFile, b: InlinkingFile) => 0 | 1 | -1 {

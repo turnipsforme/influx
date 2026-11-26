@@ -62,10 +62,9 @@ export default class InfluxFile {
         if (!this.backlinks || !this.backlinks.data) {
             return false
         }
-        const paths = this.backlinks.data instanceof Map
-            ? Array.from(this.backlinks.data.keys())
-            : Object.keys(this.backlinks.data)
-        return paths.includes(file.path)
+        return this.backlinks.data instanceof Map
+            ? this.backlinks.data.has(file.path)
+            : Object.prototype.propertyIsEnumerable.call(this.backlinks.data, file.path)
     }
 
     async makeInfluxList() {

@@ -265,3 +265,23 @@ describe('StructuredText Parsing Tests', () => {
   });
 
 });
+
+
+describe('large excerpt graph regressions', () => {
+  test('keeps source order and ancestor context across line 999', () => {
+    const text = [...Array.from({length: 999}, (_, i) => '* filler ' + i), '* parent', '  * child', '* tail'].join('\n');
+    const struct = new StructuredText(text);
+    expect(struct.ancestors['1000']).toContain('0999');
+    const result = struct.stringifyBranchesOfNodesWithLinks([1000, 1001]);
+    expect(result).toContain('parent');
+    expect(result).toContain('child');
+    expect(result).toContain('tail');
+    expect(result.indexOf('parent')).toBeLessThan(result.indexOf('child'));
+    expect(result.indexOf('child')).toBeLessThan(result.indexOf('tail'));
+  });
+  test('overlapping mentions include descendants exactly once', () => {
+    const text = '* parent\n  * first\n  * second';
+    const struct = new StructuredText(text);
+    expect(struct.stringifyBranchesOfNodesWithLinks([0, 1, 0])).toEqual(struct.stringifyBranchesOfNodesWithLinks([0]));
+  });
+});
