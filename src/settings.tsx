@@ -1,9 +1,5 @@
 import ObsidianInflux from './main';
 import { App, PluginSettingTab, Setting } from "obsidian";
-import {
-    BACKLINK_CACHE_GITHUB_URL,
-    BACKLINK_CACHE_OBSIDIAN_URL,
-} from './backlink-cache';
 
 export class ObsidianInfluxSettingsTab extends PluginSettingTab {
 
@@ -44,24 +40,11 @@ export class ObsidianInfluxSettingsTab extends PluginSettingTab {
         })
 
         const backlinkCacheActive = this.plugin.api.isBacklinkCacheActive();
-        const backlinkCacheFragment = document.createDocumentFragment();
-        backlinkCacheFragment.append(
-            backlinkCacheActive
-                ? 'Backlink Cache is active. When enabled here, Influx uses it with Obsidian as a fallback if the cache is empty. Turn it off to always use Obsidian’s native backlinks. '
-                : 'Backlink Cache is not active, so Influx will use Obsidian’s native backlinks. ',
-        );
-        const obsidianLink = document.createElement('a');
-        obsidianLink.href = BACKLINK_CACHE_OBSIDIAN_URL;
-        obsidianLink.text = 'Install in Obsidian';
-        backlinkCacheFragment.append(obsidianLink, ' · ');
-        const githubLink = document.createElement('a');
-        githubLink.href = BACKLINK_CACHE_GITHUB_URL;
-        githubLink.text = 'GitHub';
-        backlinkCacheFragment.append(githubLink);
-
         new Setting(containerEl)
             .setName('Use Backlink Cache in Influx')
-            .setDesc(backlinkCacheFragment)
+            .setDesc(backlinkCacheActive
+                ? 'Use the legacy Backlink Cache when enabled, with Obsidian’s built-in backlinks as a fallback.'
+                : 'Influx uses Obsidian’s built-in backlinks. This toggle applies to legacy Backlink Cache versions that provide a cache API.')
             .addToggle(toggle => {
                 toggle
                     .setValue(this.plugin.data.settings.useBacklinkCache)

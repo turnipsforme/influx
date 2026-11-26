@@ -229,6 +229,36 @@ test('keeps changes that arrive while a refresh is awaiting backlinks', async ()
     expect(prepare).toHaveBeenCalledTimes(1);
 });
 
+test.each(['map', 'object'])('clears the final backlink when its refresh is superseded (%s)', async shape => {
+    const { api, file, source, callbacks, native, safe } = await fixture(true, true, shape);
+    await mount(file);
+    expect(container.querySelector('.entry')).not.toBeNull();
+
+    const empty = { data: shape === 'map' ? new Map() : {} };
+    native.mockReturnValue(empty);
+    safe.mockResolvedValue(empty);
+    let started!: () => void;
+    let release!: (value: typeof empty) => void;
+    const loading = new Promise<void>(resolve => { started = resolve; });
+    safe.mockImplementationOnce(() => new Promise(resolve => {
+        release = resolve;
+        started();
+    }));
+    api.invalidateBacklinksCache();
+    const callback = callbacks.get(file.uuid);
+
+    await React.act(async () => {
+        const first = callback('modify', sheet, [source]);
+        await loading;
+        const second = callback('modify', sheet, [{ path: 'Unrelated.md' }]);
+        release(empty);
+        await Promise.all([first, second]);
+    });
+
+    expect(file.components).toEqual([]);
+    expect(container.querySelector('.entry')).toBeNull();
+});
+
 test('keeps relative link context through nested embedded previews', async () => {
     const { api, file, app, openLinkText } = await fixture();
     app.metadataCache.getFirstLinkpathDest = jest.fn((link: string, source: string) => ({
@@ -391,4 +421,24 @@ test.each(['Enter', ' '])('the heading and card arrow support the %s key', async
         });
         expect(element.getAttribute('aria-expanded')).toBe('false');
     }
+});
+
+test('collapse and expand all retain independent card state on a large list', async () => {
+    const { file } = await fixture();
+    const original = file.components[0];
+    file.components = Array.from({ length: 100 }, (_, i) => ({
+        ...original,
+        inlinkingFile: Object.assign(Object.create(Object.getPrototypeOf(original.inlinkingFile)), original.inlinkingFile, {
+            file: { ...original.inlinkingFile.file, path: 'Source-' + i + '.md' },
+        }),
+    }));
+    await mount(file);
+    await click('[aria-label="Collapse all"]');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(100);
+    await click('.search-result .collapse-icon');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(99);
+    await click('[aria-label="Collapse all"]');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(100);
+    await click('[aria-label="Expand all"]');
+    expect(container.querySelectorAll('.search-result.is-collapsed')).toHaveLength(0);
 });

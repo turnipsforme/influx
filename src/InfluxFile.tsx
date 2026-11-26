@@ -95,16 +95,27 @@ export default class InfluxFile {
     // is the file that triggers update part of the current files inlinked files?
     async shouldUpdate(files: TFile | readonly TFile[]): Promise<boolean> {
         const changedFiles = Array.isArray(files) ? files : [files]
-        const previousPaths = new Set(getBacklinkSourcePaths(this.backlinks))
+        const previousPaths = getBacklinkSourcePaths(this.backlinks)
         await this.refreshBacklinks()
-        const currentPaths = new Set(getBacklinkSourcePaths(this.backlinks))
+        const currentPaths = getBacklinkSourcePaths(this.backlinks)
+        const targetPath = this.file?.path
 
-        // Include the old set so removing the final link still clears the UI.
-        return changedFiles.some(file =>
-            file.path === this.file?.path
-            || previousPaths.has(file.path)
-            || currentPaths.has(file.path),
-        )
+        // Include previous paths so removing the final link still clears the UI.
+        if (changedFiles.length === 1) {
+            const path = changedFiles[0].path
+            return path === targetPath || previousPaths.includes(path) || currentPaths.includes(path)
+        }
+
+        // Index the smaller side of the membership test, including large import batches.
+        if (changedFiles.length > previousPaths.length + currentPaths.length) {
+            const relatedPaths = new Set(previousPaths)
+            for (const path of currentPaths) relatedPaths.add(path)
+            return changedFiles.some(file => file.path === targetPath || relatedPaths.has(file.path))
+        }
+        const changedPaths = new Set(changedFiles.map(file => file.path))
+        return changedPaths.has(targetPath)
+            || previousPaths.some(path => changedPaths.has(path))
+            || currentPaths.some(path => changedPaths.has(path))
     }
 
     private async refreshBacklinks(): Promise<void> {

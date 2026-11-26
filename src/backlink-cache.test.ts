@@ -1,6 +1,4 @@
 import {
-    BACKLINK_CACHE_GITHUB_URL,
-    BACKLINK_CACHE_OBSIDIAN_URL,
     getFreshBacklinks,
     isBacklinkCacheActive,
     type BacklinkMetadataCache,
@@ -88,10 +86,5 @@ describe('Backlink Cache integration', () => {
 
         await expect(getFreshBacklinks(metadataCache, file, true)).resolves.toBe(safeResult);
         expect(isBacklinkCacheActive(metadataCache)).toBe(true);
-    });
-
-    test('keeps the documented settings links stable', () => {
-        expect(BACKLINK_CACHE_OBSIDIAN_URL).toBe('https://obsidian.md/plugins?id=backlink-cache');
-        expect(BACKLINK_CACHE_GITHUB_URL).toBe('https://github.com/mnaoumov/obsidian-backlink-cache');
     });
 });

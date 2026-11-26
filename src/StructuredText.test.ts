@@ -288,3 +288,52 @@ describe('StructuredText Parsing Tests', () => {
   });
 
 });
+
+test('preserves source order when line IDs cross the integer-key boundary', () => {
+  const lines = Array.from({ length: 1002 }, (_, i) => 'Line ' + i);
+  const struct = new StructuredText(lines.join('\n'));
+  expect(struct.stringify()).toBe(lines.join('\n') + '\n');
+  expect(struct.stringifyBranchesOfNodesWithLinks([998, 1001]).trim()).toBe('Line 998\nLine 1001');
+});
+
+test('preserves nested ancestry and descendants across line 1000', () => {
+  const lines = [...Array.from({ length: 998 }, () => 'Context'), '- Grandparent', '  - Parent', '    - [[Target]]', '      - Child'];
+  const struct = new StructuredText(lines.join('\n'));
+  expect(struct.ancestors['1000']).toEqual(['0999', '0998']);
+  expect(struct.descendants['0998']).toEqual(['0999', '1000', '1001']);
+  expect(struct.stringifyBranchesOfNodesWithLinks([1000]).trim()).toBe('* Grandparent\n  * Parent\n    * [[Target]]\n      * Child');
+});
+
+
+test('on-demand traversal matches materialized indexes for overlapping and stale link positions', () => {
+  const notes = [
+    ['- Root', '  - Branch A', '    - [[Target]]', '    - Sibling', '  - Branch B', '    - [[Target]]', '- Other'].join('\n'),
+    ['1. Root', '   2. [[Target]]', '', '> [!note] Header', '> - Parent', '>   - [[Target]]', '', '| A | B |', '| --- | --- |', '| [[Target]] | Context |', '| Unrelated | Row |'].join('\n'),
+    Array.from({ length: 1200 }, (_, i) => i % 4 === 0 ? '- Root ' + i : i % 4 === 3 ? '' : '  - Child ' + i).join('\n'),
+    Array.from({ length: 250 }, (_, i) => ' '.repeat(i * 2) + '- Level ' + i).join('\n'),
+  ];
+  for (const raw of notes) {
+    const eager = new StructuredText(raw);
+    // Accessing the public index materializes the legacy implementation.
+    expect(eager.ancestors['0000']).toEqual([]);
+    const lazy = new StructuredText(raw);
+    const lineCount = raw.split('\n').length;
+    const cases = [
+      [], [0], [2, 0, 2], [0, 1, 2, 3, 4, 5], [lineCount - 1, lineCount + 1, -1, 0.5, NaN],
+      Array.from({ length: lineCount }, (_, i) => lineCount - i - 1),
+    ];
+    for (const links of cases) {
+      expect(lazy.stringifyBranchesOfNodesWithLinks(links)).toBe(eager.stringifyBranchesOfNodesWithLinks(links));
+    }
+    expect(lazy.stringify()).toBe(eager.stringify());
+  }
+});
+
+test('reparenting after an on-demand excerpt refreshes both legacy indexes', () => {
+  const struct = new StructuredText('- Root\n  - A\n  - B\n    - [[Target]]\n      - Child');
+  expect(struct.stringifyBranchesOfNodesWithLinks([3]).trim()).toBe('* Root\n  * B\n    * [[Target]]\n      * Child');
+  struct.reparentNode('0003', '0001');
+  expect(struct.ancestors['0004']).toEqual(['0003', '0001', '0000']);
+  expect(struct.descendants['0001']).toEqual(['0003', '0004']);
+  expect(struct.stringifyBranchesOfNodesWithLinks([3]).trim()).toBe('* Root\n  * A\n    * [[Target]]\n      * Child');
+});

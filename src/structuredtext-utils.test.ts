@@ -438,3 +438,18 @@ describe('StructuredText Utils', () => {
         });
     });
 });
+
+test('ordered-list detection returns the first match and has no cross-call state', () => {
+    expect(ifOrderedListItemReturnOrdinal('ordinary\n001) first\n42. second')).toBe(1);
+    expect(ifOrderedListItemReturnOrdinal('0. zero')).toBe(0);
+    expect(ifOrderedListItemReturnOrdinal('plain text')).toBeUndefined();
+    expect(ifOrderedListItemReturnOrdinal('42. next')).toBe(42);
+});
+
+test.each(['- ', '* ', '+ ', '- item', '* item', '+ item'])('detects exact bullet marker %s', value => {
+    expect(isProperBullet(value)).toBe(true);
+});
+
+test.each(['', '-', '+', '*', '-\titem', ' - item', '– item', '1. item'])('rejects non-bullet marker %s', value => {
+    expect(isProperBullet(value)).toBe(false);
+});

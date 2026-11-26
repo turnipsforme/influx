@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.5-beta.2] - 2026-11-26
+
+### Fixed
+
+- Preserve source order and list context in excerpts from notes longer than 999 lines.
+- Clear the last linked mention when a source removes its link during overlapping refreshes.
+- Remove the install prompt for the retired Backlink Cache plugin while retaining legacy support.
+
+### Changed
+
+- Reduce the work needed to parse excerpts, check backlink changes, and render large groups of collapsed cards.
+
 ## [2.4.5-beta.1] - 2026-09-12
 
 ### Fixed

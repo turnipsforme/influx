@@ -159,3 +159,38 @@ test('resolves relative links, headings and same-named targets from the source n
     expect(adapter.isLinkToFile({ link: 'Other/Target' } as any, 'Folder/Source.md', file)).toBe(false);
     expect(adapter.isLinkToFile({} as any, 'Folder/Source.md', file)).toBe(false);
 });
+
+
+test.each(['map', 'object'])('clones backlink arrays without mutating native data or dropping empty groups (%s)', async shape => {
+    const links = [{ link: 'Target' }];
+    const groups: [string, any][] = [['B.md', links], ['Empty.md', []], ['A.md', [{ link: 'Target' }]], ['Broken.md', null]];
+    const data = shape === 'map' ? new Map(groups) : Object.fromEntries(groups);
+    const { adapter, file } = adapterWithProvider(() => ({ data }), false);
+    const result = await adapter.getBacklinks(file);
+    expect(result.incomingSourcePaths).toEqual(['B.md', 'A.md']);
+    const cloned = result.data instanceof Map ? result.data : new Map(Object.entries(result.data));
+    expect([...cloned.keys()]).toEqual(['B.md', 'Empty.md', 'A.md']);
+    expect(cloned.get('B.md')).toEqual(links);
+    expect(cloned.get('B.md')).not.toBe(links);
+    cloned.get('B.md')!.pop();
+    expect(links).toHaveLength(1);
+    adapter.dispose();
+});
+
+test('cached pattern matcher skips empty patterns and invalid regex without changing inclusion', () => {
+    const { adapter } = adapterWithProvider(() => populated());
+    const report = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+        expect(adapter.patternMatchingFn('Sources/Note.md', [])).toBe(false);
+        expect(adapter.patternMatchingFn('Sources/Note.md', [''])).toBe(false);
+        expect(adapter.patternMatchingFn('123.md', [123 as any])).toBe(false);
+        expect(adapter.patternMatchingFn('Sources/Note.md', ['', '[', '^Sources/'])).toBe(true);
+        expect(adapter.patternMatchingFn('Other/Note.md', ['', '[', '^Sources/'])).toBe(false);
+        expect(report).toHaveBeenCalledTimes(1);
+        adapter.clearCache();
+        expect(adapter.patternMatchingFn('Sources/Note.md', ['^Other/'])).toBe(false);
+    } finally {
+        report.mockRestore();
+        adapter.dispose();
+    }
+});

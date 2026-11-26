@@ -1,8 +1,5 @@
 import type { LinkCache, TFile } from 'obsidian';
 
-export const BACKLINK_CACHE_OBSIDIAN_URL = 'https://obsidian.md/plugins?id=backlink-cache';
-export const BACKLINK_CACHE_GITHUB_URL = 'https://github.com/mnaoumov/obsidian-backlink-cache';
-
 export type RawBacklinksObject = {
     data: Map<string, LinkCache[]> | Record<string, LinkCache[]>;
 };

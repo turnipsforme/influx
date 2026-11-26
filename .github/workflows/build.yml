@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
@@ -24,7 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run tests
-        run: npm test
+        run: npm test -- --runInBand
+      - name: Paired excerpt parser benchmark
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'aae/')
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/benchmark-structuredtext.cjs "$BASELINE_REF"
 
   build:
     runs-on: ubuntu-latest
@@ -43,7 +50,7 @@ jobs:
           npm ci
           npm run build
           mkdir ${{ env.PLUGIN_NAME }}
-          cp main.js manifest.json ${{ env.PLUGIN_NAME }}
+          cp main.js manifest.json styles.css ${{ env.PLUGIN_NAME }}
           zip -r ${{ env.PLUGIN_NAME }}.zip ${{ env.PLUGIN_NAME }}
           ls
           echo "tag_name=$(git tag --sort version:refname | tail -n 1)" >> $GITHUB_OUTPUT

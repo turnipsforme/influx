@@ -6,10 +6,8 @@
 import { NodeType } from './StructuredText';
 
 // Constants
-export const ORDERED_LISTITEM_REGEX = /^(\d+)[.)] /gm;
+export const ORDERED_LISTITEM_REGEX = /^(\d+)[.)] /m;
 export const TABLE_ROW_REGEX = /^\|(.+)\|(.*)\|/gm;
-export const DASH_SIGN = '- ';
-export const BULLET_SIGN = '* ';
 
 /**
  * Finds the last non-empty element in a stack with optional offset
@@ -29,13 +27,8 @@ export function lastNonEmptyElement(stack: string[], offset = 0): string | null 
  * Extracted from StructuredText.parseText()
  */
 export function ifOrderedListItemReturnOrdinal(str: string): number | undefined {
-    const matches = str.matchAll(ORDERED_LISTITEM_REGEX);
-    for (const match of matches) {
-        if (match[1]) {
-            return Number(match[1]);
-        }
-    }
-    return undefined;
+    const match = ORDERED_LISTITEM_REGEX.exec(str);
+    return match ? Number(match[1]) : undefined;
 }
 
 /**
@@ -71,7 +64,7 @@ export function parseMarkdownTableRow(row: string): { cols: number; isDivider: b
  * Extracted from StructuredText.parseText()
  */
 export function isProperBullet(trimmed: string): boolean {
-    return [DASH_SIGN, BULLET_SIGN, '+ '].includes(trimmed.substring(0, 2));
+    return trimmed[1] === ' ' && (trimmed[0] === '-' || trimmed[0] === '*' || trimmed[0] === '+');
 }
 
 /**

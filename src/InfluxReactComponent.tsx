@@ -19,27 +19,28 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 	const [components, setComponents] = React.useState(influxFile.components)
 	const [stylesheet, setStyleSheet] = React.useState(sheet)
-	const [collapsed, setCollapsed]: [string[], React.Dispatch<React.SetStateAction<string[]>>] = React.useState(influxFile.collapsed ? components.map(component => component.inlinkingFile.file.path) : [])
+	const [collapsed, setCollapsed] = React.useState(() => new Set(influxFile.collapsed ? components.map(component => component.inlinkingFile.file.path) : []))
 	const [sectionCollapsed, setSectionCollapsed] = React.useState(false)
 	const resultsId = React.useId()
-	const expandAllOnClick = sectionCollapsed || (components.length > 0 && components.every(component => collapsed.includes(component.inlinkingFile.file.path)))
+	const expandAllOnClick = sectionCollapsed || (components.length > 0 && components.every(component => collapsed.has(component.inlinkingFile.file.path)))
 	const updateGeneration = React.useRef(0)
 	const updateQueue = React.useRef<Promise<void>>(Promise.resolve())
 
 	const doToggle = (sourcePath: string) => {
-		setCollapsed(paths => paths.includes(sourcePath)
-			? paths.filter(path => path !== sourcePath)
-			: [...paths, sourcePath])
+		setCollapsed(paths => {
+			const next = new Set(paths)
+			if (!next.delete(sourcePath)) next.add(sourcePath)
+			return next
+		})
 	}
 
 	const toggleAll = () => {
-		const all = components.map(component => component.inlinkingFile.file.path)
 		if (expandAllOnClick) {
 			setSectionCollapsed(false)
-			setCollapsed([])
+			setCollapsed(new Set())
 		}
 		else {
-			setCollapsed(all)
+			setCollapsed(new Set(components.map(component => component.inlinkingFile.file.path)))
 		}
 	}
 
@@ -50,6 +51,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 		setStyleSheet(sheet)
 		const pendingFiles = new Map<string, TFile>()
 		let needsFullRefresh = false
+		let needsRelevantRefresh = false
 
 		const respondToUpdateTrigger = (op: string, stylesheet: StyleSheetType, files?: readonly TFile[]): Promise<void> => {
 			if (op === 'modify' && files) {
@@ -65,7 +67,10 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 
 				let backlinksRefreshed = false
 				if (!needsFullRefresh) {
-					if (!await influxFile.shouldUpdate([...pendingFiles.values()])) {
+					const relevant = await influxFile.shouldUpdate([...pendingFiles.values()])
+					// A superseded refresh can already have replaced the previous backlink snapshot.
+					needsRelevantRefresh ||= relevant
+					if (!needsRelevantRefresh) {
 						if (generation === updateGeneration.current) pendingFiles.clear()
 						return
 					}
@@ -85,6 +90,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 				setComponents([...influxFile.components])
 				pendingFiles.clear()
 				needsFullRefresh = false
+				needsRelevantRefresh = false
 			}
 
 			const queued = updateQueue.current.then(runUpdate, runUpdate)
@@ -243,7 +249,7 @@ export default function InfluxReactComponent(props: InfluxReactComponentProps): 
 						{components.map((extended: ExtendedInlinkingFile) => {
 
 							const sourcePath = extended.inlinkingFile.file.path
-							const inlinkedCollapsed = collapsed.includes(sourcePath)
+							const inlinkedCollapsed = collapsed.has(sourcePath)
 
 							const entryHeader = settings.entryHeaderVisible && extended.titleInnerHTML && !extended.inlinkingFile.isLinkInTitle ? (
 								<h2>

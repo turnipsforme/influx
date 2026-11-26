@@ -208,13 +208,13 @@ export class ApiAdapter {
     private cloneBacklinks(backlinks: BacklinksObject | null | undefined): BacklinksObject {
         const data = backlinks?.data;
         if (data instanceof Map) {
-            return {
-                data: new Map(
-                    Array.from(data.entries())
-                        .filter(([path, links]) => typeof path === 'string' && Array.isArray(links))
-                        .map(([path, links]) => [path, [...links]]),
-                ),
-            };
+            const clonedData = new Map<string, LinkCache[]>();
+            for (const [path, links] of data.entries()) {
+                if (typeof path === 'string' && Array.isArray(links)) {
+                    clonedData.set(path, [...links]);
+                }
+            }
+            return { data: clonedData };
         }
 
         const clonedData: Record<string, LinkCache[]> = Object.create(null);
@@ -352,8 +352,8 @@ export class ApiAdapter {
         return shouldCollapseInfluxWithMatcher(file.path, settings as FilterSettings, this.patternMatchingFn);
     }
     patternMatchingFn = (path: string, _patterns: string[]): boolean => {
-        const patterns = _patterns.filter((_path: string) => _path.length > 0)
         const pathMatchesRegex = (pattern: string): boolean => {
+            if (!(pattern.length > 0)) return false;
             try {
                 // Use cached regex if available, otherwise compile and cache it
                 let regex = this.regexCache.get(pattern);
@@ -373,8 +373,7 @@ export class ApiAdapter {
                 return false;
             }
         };
-        const matched = patterns.some(pathMatchesRegex);
-        return matched
+        return _patterns.some(pathMatchesRegex)
     };
     /** A sort function to order notes correctly, based on settings. */
     makeComparisonFn(): (a: InlinkingFile, b: InlinkingFile) => 0 | 1 | -1 {
