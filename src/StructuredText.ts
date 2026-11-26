@@ -89,8 +89,17 @@ export class StructuredText {
     children: ChildrenIndex;
     parents: ParentsIndex;
     types: TypeIndex;
-    descendants: DescendantsIndex = {}
-    ancestors: AncestorsIndex = {}
+    private indexes?: { ancestors: AncestorsIndex; descendants: DescendantsIndex }
+
+    get ancestors(): AncestorsIndex {
+        if (!this.indexes) this.buildAncestorsAndDescendantsIndexes()
+        return this.indexes!.ancestors
+    }
+
+    get descendants(): DescendantsIndex {
+        if (!this.indexes) this.buildAncestorsAndDescendantsIndexes()
+        return this.indexes!.descendants
+    }
     roots: RootsIndex = {}
 
 
@@ -101,8 +110,6 @@ export class StructuredText {
         this.children = children
         this.parents = parents
         this.roots = roots
-
-        this.buildAncestorsAndDescendantsIndexes()
     }
 
     private parseText(text: string): { internals: InternalsIndex, children: ChildrenIndex, parents: ParentsIndex, roots: RootsIndex } {
@@ -317,8 +324,8 @@ export class StructuredText {
 
     private buildAncestorsAndDescendantsIndexes(): void {
 
-        this.descendants = {}
-        this.ancestors = {}
+        const descendants: DescendantsIndex = {}
+        const ancestors: AncestorsIndex = {}
         const nodeIds = orderedNodeIds(this.internals)
 
         // ### Ancestors iteration
@@ -328,12 +335,12 @@ export class StructuredText {
             const parentId = this.parents[id]
 
             if (!parentId) {
-                this.ancestors[id] = []
+                ancestors[id] = []
             }
             else {
-                this.ancestors[id] = this.ancestors[id] || []
-                this.ancestors[parentId] = this.ancestors[parentId] || []
-                this.ancestors[id] = [...this.ancestors[id], parentId, ...this.ancestors[parentId]]
+                ancestors[id] = ancestors[id] || []
+                ancestors[parentId] = ancestors[parentId] || []
+                ancestors[id] = [...ancestors[id], parentId, ...ancestors[parentId]]
             }
 
         }
@@ -342,14 +349,15 @@ export class StructuredText {
 
         for (const id of nodeIds) {
 
-            this.descendants[id] = this.descendants[id] || []
-            const ancestorsOfId = this.ancestors[id];
+            descendants[id] = descendants[id] || []
+            const ancestorsOfId = ancestors[id];
 
             ancestorsOfId.forEach(ancestorId => {
-                (this.descendants[ancestorId] ||= []).push(id);
+                (descendants[ancestorId] ||= []).push(id);
             })
 
         }
+        this.indexes = { ancestors, descendants }
     }
 
     public reparentNode = (childToBeId: NodeId, parentToBeId: NodeId): void => {
@@ -400,7 +408,7 @@ export class StructuredText {
                 else if (internals.mode === ModeType.List) {
                     // str += OUTPUT_INDENT_STEP.repeat(level)
 
-                    this.ancestors[id].forEach(_id => {
+                    this.getAncestors(id).forEach(_id => {
                         const anc = this.internals[_id]
                         if (anc.ordinal !== undefined) {
                             str += OUTPUT_INDENT.repeat(String(anc.ordinal).length + OUTPUT_ORDINAL_SIGN.length)
@@ -488,25 +496,51 @@ export class StructuredText {
 
     }
 
+    // Parsed parent links always point to earlier lines. Only materialize the
+    // complete indexes if explicitly requested or the graph has been reparented.
+    private getAncestors(id: NodeId): NodeId[] {
+        if (this.indexes) return this.indexes.ancestors[id]
+        const ancestors: NodeId[] = []
+        for (let parent = this.parents[id]; parent; parent = this.parents[parent]) {
+            ancestors.push(parent)
+        }
+        return ancestors
+    }
+
     public stringifyBranchesOfNodesWithLinks = (lineNumbers: number[]) => {
-
-        // Use array as map to reduce iterations
         const explIncludes: ExplicitIncludes = []
+        const expanded = new Set<NodeId>()
 
-        lineNumbers.forEach(lineNumber => {
-
-            const id: NodeId = `${lineNumber}`.padStart(4, '0')
-
+        for (const lineNumber of lineNumbers) {
+            const id = generateNodeId(lineNumber)
             // Metadata can still refer to lines removed by the latest edit.
-            if (!this.internals[id]) return
-
+            if (!this.internals[id]) continue
             explIncludes[lineNumber] = true
-            this.ancestors[id].forEach(_id => { explIncludes[Number(_id)] = true })
-            this.descendants[id].forEach(_id => { explIncludes[Number(_id)] = true })
 
+            if (this.indexes) {
+                // Preserve the existing index semantics for reparented graphs.
+                this.indexes.ancestors[id].forEach(ancestor => { explIncludes[Number(ancestor)] = true })
+                this.indexes.descendants[id].forEach(descendant => { explIncludes[Number(descendant)] = true })
+                continue
+            }
 
-        })
+            for (let parent = this.parents[id]; parent; parent = this.parents[parent]) {
+                if (explIncludes[Number(parent)]) break
+                explIncludes[Number(parent)] = true
+            }
 
+            // Each selected descendant is expanded at most once, even when
+            // several mentions overlap. Marking an ancestor is not expansion.
+            const pending = [id]
+            while (pending.length) {
+                const descendant = pending.pop()!
+                if (expanded.has(descendant)) continue
+                expanded.add(descendant)
+                explIncludes[Number(descendant)] = true
+                const children = this.children[descendant]
+                if (children) for (const child of children) pending.push(child)
+            }
+        }
         return this.stringify(explIncludes)
     }
 

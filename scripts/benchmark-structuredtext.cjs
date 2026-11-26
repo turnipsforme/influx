@@ -30,12 +30,29 @@ try {
     const after = load('after');
     const excerpt = (Parser, source) => {
         const parsed = new Parser(source.content);
-        return source.heading ? parsed.stringify() : parsed.stringifyBranchesOfNodesWithLinks([source.linkLine]);
+        return source.heading ? parsed.stringify() : parsed.stringifyBranchesOfNodesWithLinks(source.linkLines ?? [source.linkLine]);
     };
     const median = samples => [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)];
     let sink = 0;
-    for (const count of [100, 1000, 5000]) {
-        const sources = Array.from({ length: count }, (_, index) => makeSource(index));
+    const cases = [100, 1000, 5000].map(count => ({
+        label: 'mixed-' + count,
+        sources: Array.from({ length: count }, (_, index) => makeSource(index)),
+    }));
+    if (process.argv.includes('--extended')) {
+        // Compare these against the corrected long-note parser, not older master.
+        const makeNotes = (count, length, line, linkLines) => Array.from({ length: count }, (_, i) => ({
+            path: 'Long-' + i + '.md',
+            content: Array.from({ length }, (_, j) => line(j)).join('\n'),
+            linkLines: linkLines(length),
+        }));
+        cases.push(
+            { label: 'long-sparse', sources: makeNotes(32, 2000, j => j % 4 === 0 ? '- Root ' + j : j % 4 === 3 ? '' : '  - Child ' + j, n => [2, n - 2]) },
+            { label: 'deep-sparse', sources: makeNotes(16, 250, j => ' '.repeat(j * 2) + '- Level ' + j, n => [Math.floor(n / 2)]) },
+            { label: 'dense-overlap', sources: makeNotes(32, 500, j => j % 5 === 0 ? '- Root ' + j : '  - Child ' + j, n => Array.from({ length: n }, (_, j) => j)) },
+        );
+    }
+    for (const { label, sources } of cases) {
+        const count = sources.length;
         for (const source of sources) assert.equal(excerpt(after, source), excerpt(before, source), source.path);
         function run(Parser) {
             const start = performance.now();
@@ -51,7 +68,7 @@ try {
             else { baseline.push(run(before)); candidate.push(run(after)); }
         }
         console.log('INFLUX_PARSER_PAIR ' + JSON.stringify({
-            count, baselineRef, baseline, candidate, baselineMedian: median(baseline),
+            label, count, baselineRef, baseline, candidate, baselineMedian: median(baseline),
             candidateMedian: median(candidate), improvement: 1 - median(candidate) / median(baseline),
         }));
     }
